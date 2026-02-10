@@ -1,40 +1,46 @@
-export const INITIAL_SCHEMA = `CREATE TABLE \`categories\` (
-	\`id\` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+export const INITIAL_MIGRATION_SQL = `CREATE TABLE \`categories\` (
+	\`id\` text PRIMARY KEY NOT NULL,
 	\`name\` text NOT NULL,
 	\`description\` text,
 	\`slug\` text NOT NULL,
-	\`created_at\` integer DEFAULT (unixepoch()) NOT NULL,
-	\`updated_at\` integer DEFAULT (unixepoch())
+	\`created_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`updated_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`deleted_at\` integer
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX \`categories_slug_unique\` ON \`categories\` (\`slug\`);--> statement-breakpoint
 CREATE TABLE \`discounts\` (
-	\`id\` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	\`id\` text PRIMARY KEY NOT NULL,
 	\`code\` text NOT NULL,
 	\`name\` text NOT NULL,
 	\`type\` text NOT NULL,
 	\`value\` text NOT NULL,
 	\`start_date\` integer,
 	\`end_date\` integer,
-	\`is_active\` integer DEFAULT true
+	\`is_active\` integer DEFAULT true,
+	\`created_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`updated_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`deleted_at\` integer
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX \`discounts_code_unique\` ON \`discounts\` (\`code\`);--> statement-breakpoint
 CREATE TABLE \`members\` (
-	\`id\` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	\`id\` text PRIMARY KEY NOT NULL,
 	\`name\` text NOT NULL,
 	\`phone\` text NOT NULL,
 	\`email\` text,
 	\`points\` integer DEFAULT 0,
 	\`tier\` text DEFAULT 'Silver',
-	\`created_at\` integer DEFAULT (unixepoch()) NOT NULL
+	\`created_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`updated_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`deleted_at\` integer
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX \`members_phone_unique\` ON \`members\` (\`phone\`);--> statement-breakpoint
 CREATE TABLE \`order_items\` (
-	\`id\` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	\`order_id\` integer NOT NULL,
-	\`product_id\` integer,
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`order_id\` text NOT NULL,
+	\`product_id\` text,
 	\`product_name_snapshot\` text NOT NULL,
 	\`sku_snapshot\` text,
 	\`quantity\` integer NOT NULL,
@@ -45,20 +51,22 @@ CREATE TABLE \`order_items\` (
 );
 --> statement-breakpoint
 CREATE TABLE \`order_payments\` (
-	\`id\` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	\`order_id\` integer NOT NULL,
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`order_id\` text NOT NULL,
 	\`payment_method\` text NOT NULL,
 	\`amount\` text NOT NULL,
 	\`reference_id\` text,
-	\`created_at\` integer DEFAULT (unixepoch()) NOT NULL,
+	\`created_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`updated_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`deleted_at\` integer,
 	FOREIGN KEY (\`order_id\`) REFERENCES \`orders\`(\`id\`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE TABLE \`orders\` (
-	\`id\` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	\`member_id\` integer,
-	\`discount_id\` integer,
-	\`cashier_id\` integer,
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`member_id\` text,
+	\`discount_id\` text,
+	\`cashier_id\` text,
 	\`subtotal\` text DEFAULT '0' NOT NULL,
 	\`discount_amount\` text DEFAULT '0',
 	\`tax_amount\` text DEFAULT '0',
@@ -73,15 +81,18 @@ CREATE TABLE \`orders\` (
 	\`customer_name\` text,
 	\`customer_phone\` text,
 	\`queue_number\` integer DEFAULT 1 NOT NULL,
-	\`created_at\` integer DEFAULT (unixepoch()) NOT NULL,
+	\`status\` text DEFAULT 'pending',
+	\`created_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`updated_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`deleted_at\` integer,
 	FOREIGN KEY (\`member_id\`) REFERENCES \`members\`(\`id\`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (\`discount_id\`) REFERENCES \`discounts\`(\`id\`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (\`cashier_id\`) REFERENCES \`users\`(\`id\`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE TABLE \`products\` (
-	\`id\` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	\`category_id\` integer,
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`category_id\` text,
 	\`name\` text NOT NULL,
 	\`description\` text,
 	\`image_url\` text,
@@ -92,16 +103,17 @@ CREATE TABLE \`products\` (
 	\`stock\` integer DEFAULT 0 NOT NULL,
 	\`min_stock\` integer DEFAULT 5 NOT NULL,
 	\`is_active\` integer DEFAULT true NOT NULL,
-	\`created_at\` integer DEFAULT (unixepoch()) NOT NULL,
-	\`updated_at\` integer DEFAULT (unixepoch()),
+	\`created_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`updated_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`deleted_at\` integer,
 	FOREIGN KEY (\`category_id\`) REFERENCES \`categories\`(\`id\`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX \`products_barcode_unique\` ON \`products\` (\`barcode\`);--> statement-breakpoint
 CREATE UNIQUE INDEX \`products_sku_unique\` ON \`products\` (\`sku\`);--> statement-breakpoint
 CREATE TABLE \`store_settings\` (
-	\`id\` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	\`name\` text DEFAULT 'Toko Saya' NOT NULL,
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`name\` text DEFAULT 'Smart POS Store' NOT NULL,
 	\`description\` text,
 	\`address\` text,
 	\`phone\` text,
@@ -109,29 +121,33 @@ CREATE TABLE \`store_settings\` (
 	\`website\` text,
 	\`logo_url\` text,
 	\`currency\` text DEFAULT 'IDR',
-	\`receipt_footer\` text DEFAULT 'Terima kasih!',
-	\`created_at\` integer DEFAULT (unixepoch()) NOT NULL,
-	\`updated_at\` integer DEFAULT (unixepoch())
+	\`receipt_footer\` text DEFAULT 'Terima kasih atas kunjungan Anda!',
+	\`created_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`updated_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`deleted_at\` integer
 );
 --> statement-breakpoint
 CREATE TABLE \`taxes\` (
-	\`id\` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	\`id\` text PRIMARY KEY NOT NULL,
 	\`name\` text NOT NULL,
 	\`rate\` text NOT NULL,
 	\`is_active\` integer DEFAULT true,
-	\`created_at\` integer DEFAULT (unixepoch()) NOT NULL
+	\`created_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`updated_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`deleted_at\` integer
 );
 --> statement-breakpoint
 CREATE TABLE \`users\` (
-	\`id\` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	\`id\` text PRIMARY KEY NOT NULL,
 	\`name\` text NOT NULL,
 	\`username\` text NOT NULL,
 	\`password\` text NOT NULL,
 	\`role\` text DEFAULT 'cashier' NOT NULL,
 	\`avatar_url\` text,
 	\`is_active\` integer DEFAULT true,
-	\`created_at\` integer DEFAULT (unixepoch()) NOT NULL,
-	\`updated_at\` integer DEFAULT (unixepoch())
+	\`created_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`updated_at\` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+	\`deleted_at\` integer
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX \`users_username_unique\` ON \`users\` (\`username\`);`;
