@@ -1,61 +1,50 @@
 import Database from "@tauri-apps/plugin-sql";
-import { drizzle, type SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy";
+import { drizzle } from "drizzle-orm/sqlite-proxy";
 
-// 1. Definisikan Tipe untuk Baris Database Raw (dari Tauri Plugin)
-// Tauri mengembalikan array of objects (Key-Value), bukan array of values.
-type SqlRow = Record<string, unknown>;
+// Singleton Connection
+let db: ReturnType<typeof drizzle> | null = null;
 
-// 2. Variabel Global dengan Tipe Eksplisit
-let dbInstance: Database | null = null;
-let drizzleInstance: SqliteRemoteDatabase | null = null;
+export const initDb = async () => {
+  if (db) return db;
 
-export async function initDatabase() {
-	// Return jika sudah ada instance (Singleton Pattern)
-	if (dbInstance && drizzleInstance) {
-		return { db: dbInstance, drizzle: drizzleInstance };
-	}
+  try {
+    // 1. Load SQLite DB
+    const sqlite = await Database.load("sqlite:smartpos.db");
 
-	try {
-		// Load Raw Database
-		dbInstance = await Database.load("sqlite:store.db");
+    // 2. Setup Drizzle Proxy (Bridge Tauri <-> Drizzle)
+    // Kita handle 'method' agar query efisien (Read vs Write)
+    db = drizzle(async (sql, params, method) => {
+      try {
+        // LOGIC: Pisahkan Read (select) vs Write (execute)
+        if (method === "run") {
+          // Case: INSERT, UPDATE, DELETE
+          const res = await sqlite.execute(sql, params);
+          return { 
+            rows: [], 
+            rowsAffected: res.rowsAffected, 
+            insertId: res.lastInsertId 
+          };
+        } else {
+          // Case: SELECT ('all', 'get', 'values')
+          // Force cast ke any[] karena Tauri return unknown, tapi Drizzle butuh array
+          const rows = await sqlite.select(sql, params) as any[]; 
+          return { rows: rows };
+        }
+      } catch (e: any) {
+        console.error("❌ SQL Error:", e.message);
+        throw e;
+      }
+    });
 
-		// Setup Drizzle ORM Proxy
-		drizzleInstance = drizzle(async (sql, params, method) => {
-			try {
-				// Pastikan dbInstance ada
-				if (!dbInstance) throw new Error("Database instance lost");
+    console.log("✅ Database initialized successfully");
+    return db;
+  } catch (error) {
+    console.error("❌ Failed to initialize database:", error);
+    throw error;
+  }
+};
 
-				// Gunakan Generic <SqlRow[]> untuk memberi tahu TS bentuk return value-nya
-				// params kita cast ke unknown[] agar aman
-				const rows = await dbInstance.select<SqlRow[]>(
-					sql,
-					params as unknown[],
-				);
-
-				// Konversi: Array of Objects -> Array of Arrays
-				// Drizzle Proxy membutuhkan format: [ [val1, val2], [val3, val4] ]
-				return {
-					rows: rows.map((row) => Object.values(row)),
-				};
-			} catch (e: unknown) {
-				console.error("SQL Error:", e);
-				// Return array kosong agar aplikasi tidak crash, tapi error tercatat
-				return { rows: [] };
-			}
-		});
-
-		console.log("✅ Database Connected Successfully");
-		return { db: dbInstance, drizzle: drizzleInstance };
-	} catch (error: unknown) {
-		console.error("❌ Failed to load database:", error);
-		throw error;
-	}
-}
-
-// Helper strict untuk mengambil instance Drizzle
-export function getDb(): SqliteRemoteDatabase {
-	if (!drizzleInstance) {
-		throw new Error("❌ Database not initialized! Call initDatabase() first.");
-	}
-	return drizzleInstance;
-}
+export const getDb = () => {
+  if (!db) throw new Error("Database not initialized! Call initDb() first.");
+  return db;
+};
