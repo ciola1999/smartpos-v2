@@ -1,0 +1,10 @@
+# Dependency & Build Artifacts
+node_modules
+.next
+dist
+build
+src-tauri/target
+
+# CSS Files (Handled by Tailwind v4 Compiler)
+src/app/globals.css
+**/*.css
