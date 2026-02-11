@@ -102,6 +102,7 @@ CREATE TABLE `products` (
 	`cost_price` text DEFAULT '0' NOT NULL,
 	`stock` integer DEFAULT 0 NOT NULL,
 	`min_stock` integer DEFAULT 5 NOT NULL,
+	`unit` text DEFAULT 'pcs',
 	`is_active` integer DEFAULT true NOT NULL,
 	`created_at` integer DEFAULT (strftime('%s', 'now')) NOT NULL,
 	`updated_at` integer DEFAULT (strftime('%s', 'now')) NOT NULL,

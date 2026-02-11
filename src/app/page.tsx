@@ -1,12 +1,17 @@
 "use client";
 
+import { CheckCircle2, Loader2, Terminal, XCircle } from "lucide-react";
+// 👇 1. Tambahkan import ini
 import { initDb } from "@/lib/db";
 import { runSystemSetup } from "@/lib/setup";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, Loader2, Terminal, XCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 export default function Page() {
+	// 👇 2. Inisialisasi Router
+	const router = useRouter();
+
 	const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">(
 		"idle",
 	);
@@ -27,7 +32,6 @@ export default function Page() {
 
 				// 2. Run Migrations & Seeding
 				setMessage("⚙️ Verifying System Integrity...");
-				// Delay sedikit agar transisi UI terlihat halus (opsional)
 				await new Promise((r) => setTimeout(r, 800));
 
 				await runSystemSetup();
@@ -52,6 +56,12 @@ export default function Page() {
 			mounted = false;
 		};
 	}, []);
+
+	// 👇 3. Buat fungsi navigasi sederhana
+	const handleLogin = () => {
+		// Di sini nanti bisa ditaruh logic simpan session
+		router.push("/dashboard");
+	};
 
 	return (
 		<div className="flex h-full flex-col items-center justify-center gap-6 p-8 text-center animate-in fade-in zoom-in duration-500">
@@ -125,6 +135,7 @@ export default function Page() {
 
 						<button
 							type="button"
+							onClick={handleLogin} // 👈 4. Pasang handler di sini
 							className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 						>
 							Masuk ke Dashboard

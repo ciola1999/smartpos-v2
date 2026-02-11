@@ -1,7 +1,11 @@
 "use client";
 
+import { useSidebar } from "@/hooks/use-sidebar";
 import { cn } from "@/lib/utils";
+import { AnimatePresence, motion } from "framer-motion";
 import {
+	ChevronLeft,
+	ChevronRight,
 	LayoutDashboard,
 	LogOut,
 	Package,
@@ -12,81 +16,136 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-// Definisikan tipe untuk item navigasi
-interface SidebarItem {
-	title: string;
+// Definisi Menu (Strict Type)
+type MenuItem = {
 	href: string;
+	label: string;
 	icon: React.ElementType;
-}
+};
 
-const sidebarItems: SidebarItem[] = [
-	{ title: "Dashboard", href: "/", icon: LayoutDashboard },
-	{ title: "Kasir (POS)", href: "/pos", icon: ShoppingCart },
-	{ title: "Produk", href: "/products", icon: Package },
-	{ title: "Pengaturan", href: "/settings", icon: Settings },
+const menuItems: MenuItem[] = [
+	{ href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+	{ href: "/dashboard/pos", label: "Kasir (POS)", icon: ShoppingCart },
+	{ href: "/dashboard/products", label: "Produk", icon: Package },
+	{ href: "/dashboard/settings", label: "Pengaturan", icon: Settings },
 ];
 
 export function Sidebar() {
 	const pathname = usePathname();
+	const { isOpen, toggle } = useSidebar();
 
 	return (
-		<aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:flex">
-			{/* Header Logo */}
-			<div className="flex h-16 items-center border-b border-border/40 px-6">
-				<Link
-					href="/"
-					className="flex items-center gap-2 font-bold text-xl tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-				>
-					<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-						<Store className="h-5 w-5" />
-					</div>
-					<span>SmartPOS</span>
-				</Link>
+		<motion.aside
+			// Animasi Lebar Sidebar
+			initial={false}
+			animate={{ width: isOpen ? "16rem" : "5rem" }} // 256px vs 80px
+			transition={{ type: "spring", stiffness: 300, damping: 30 }}
+			className="relative flex h-screen flex-col border-r bg-card text-card-foreground z-20 overflow-hidden"
+		>
+			{/* 1. Header Logo Area */}
+			<div className="flex h-16 items-center px-4 overflow-hidden whitespace-nowrap">
+				<Store className="h-8 w-8 text-primary shrink-0 mr-3" />
+
+				<AnimatePresence>
+					{isOpen && (
+						<motion.div
+							initial={{ opacity: 0, x: -10 }}
+							animate={{ opacity: 1, x: 0 }}
+							exit={{ opacity: 0, x: -10 }}
+						>
+							<h1 className="font-bold text-lg tracking-tight">SmartPOS</h1>
+							<p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+								Local Hybrid
+							</p>
+						</motion.div>
+					)}
+				</AnimatePresence>
 			</div>
 
-			{/* Navigation */}
-			<nav className="flex-1 overflow-y-auto py-4">
-				<ul className="grid gap-1 px-2">
-					{sidebarItems.map((item) => {
-						const isActive = pathname === item.href;
-						return (
-							<li key={item.href}>
-								<Link
-									href={item.href}
+			{/* 2. Navigation Items */}
+			<nav className="flex-1 py-6 flex flex-col gap-2 px-3">
+				{menuItems.map((item) => {
+					const Icon = item.icon;
+					const isActive = pathname === item.href;
+
+					return (
+						<Link
+							key={item.href}
+							href={item.href}
+							title={!isOpen ? item.label : undefined} // Tooltip saat collapsed
+							className={cn(
+								"group relative flex items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all hover:bg-muted",
+								isActive
+									? "bg-primary text-primary-foreground hover:bg-primary"
+									: "text-muted-foreground",
+							)}
+						>
+							{/* Icon Container */}
+							<div className="relative z-10 flex shrink-0 items-center justify-center">
+								<Icon
 									className={cn(
-										"group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all",
-										"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-										isActive
-											? "bg-primary text-primary-foreground shadow-sm"
-											: "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+										"h-5 w-5 transition-transform",
+										!isOpen && isActive && "scale-110",
 									)}
-								>
-									<item.icon
-										className={cn(
-											"h-4 w-4",
-											isActive
-												? "text-primary-foreground"
-												: "text-muted-foreground group-hover:text-accent-foreground",
-										)}
-									/>
-									{item.title}
-								</Link>
-							</li>
-						);
-					})}
-				</ul>
+								/>
+							</div>
+
+							{/* Text Label (Animate In/Out) */}
+							<AnimatePresence>
+								{isOpen && (
+									<motion.span
+										initial={{ opacity: 0, width: 0 }}
+										animate={{ opacity: 1, width: "auto" }}
+										exit={{ opacity: 0, width: 0 }}
+										className="ml-3 overflow-hidden whitespace-nowrap"
+									>
+										{item.label}
+									</motion.span>
+								)}
+							</AnimatePresence>
+
+							{/* Active Indicator (Glow Effect) */}
+							{isActive && (
+								<motion.div
+									layoutId="active-nav"
+									className="absolute inset-0 rounded-lg bg-primary/10 mix-blend-multiply dark:mix-blend-screen"
+									initial={false}
+									transition={{ type: "spring", stiffness: 300, damping: 30 }}
+								/>
+							)}
+						</Link>
+					);
+				})}
 			</nav>
 
-			{/* Footer Actions */}
-			<div className="border-t border-border/40 p-4">
+			{/* 3. Toggle Button & Footer */}
+			<div className="border-t p-3">
 				<button
 					type="button"
-					className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					onClick={toggle}
+					className="flex w-full items-center justify-center rounded-md p-2 hover:bg-muted transition-colors text-muted-foreground"
+					aria-label={isOpen ? "Collapse Sidebar" : "Expand Sidebar"}
 				>
-					<LogOut className="h-4 w-4" />
-					Keluar
+					{isOpen ? (
+						<ChevronLeft className="h-4 w-4" />
+					) : (
+						<ChevronRight className="h-4 w-4" />
+					)}
 				</button>
+
+				<div className="mt-2 flex justify-center">
+					<Link
+						href="/"
+						className={cn(
+							"p-2 text-destructive/80 hover:bg-destructive/10 rounded-md transition-colors",
+							isOpen ? "w-full flex items-center gap-2" : "justify-center",
+						)}
+					>
+						<LogOut className="h-5 w-5" />
+						{isOpen && <span className="text-sm font-medium">Keluar</span>}
+					</Link>
+				</div>
 			</div>
-		</aside>
+		</motion.aside>
 	);
 }

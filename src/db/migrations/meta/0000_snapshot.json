@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "79f079f8-cd3a-4935-af5b-14f5d921bb77",
+  "id": "4e338c9d-caf4-41a3-b77b-07c0d093a742",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "categories": {
@@ -729,6 +729,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": 5
+        },
+        "unit": {
+          "name": "unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "'pcs'"
         },
         "is_active": {
           "name": "is_active",

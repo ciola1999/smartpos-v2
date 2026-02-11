@@ -1,4 +1,3 @@
-// smart-pos\src\lib\db.ts
 import Database from "@tauri-apps/plugin-sql";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
 
@@ -13,7 +12,6 @@ export const initDb = async () => {
 		const sqlite = await Database.load("sqlite:smartpos.db");
 
 		// 2. Setup Drizzle Proxy (Bridge Tauri <-> Drizzle)
-		// Kita handle 'method' agar query efisien (Read vs Write)
 		db = drizzle(async (sql, params, method) => {
 			try {
 				// LOGIC: Pisahkan Read (select) vs Write (execute)
@@ -26,21 +24,36 @@ export const initDb = async () => {
 						insertId: res.lastInsertId,
 					};
 				} else {
-					// Case: SELECT ('all', 'get', 'values')
-					// Force cast ke any[] karena Tauri return unknown, tapi Drizzle butuh array
-					const rows = (await sqlite.select(sql, params)) as any[];
+					// Case: SELECT
+					// Gunakan 'unknown[]' bukan 'any[]' untuk mematuhi aturan strict mode
+					// Drizzle akan memproses mapping tipe datanya nanti
+					const rows = (await sqlite.select(sql, params)) as unknown[];
 					return { rows: rows };
 				}
-			} catch (e: any) {
-				console.error("❌ SQL Error:", e.message);
-				throw e;
+			} catch (e: unknown) {
+				// 🛡️ STRICT ERROR HANDLING
+				// Kita tangkap error dalam bentuk apa pun (String/Error Object)
+				const errorMessage =
+					e instanceof Error
+						? e.message
+						: typeof e === "string"
+							? e
+							: JSON.stringify(e);
+
+				console.error("❌ SQL Execution Failed");
+				console.error("👉 Query:", sql);
+				console.error("👉 Params:", params);
+				console.error("👉 Error:", errorMessage);
+
+				// Re-throw sebagai Error object standar agar setup.ts bisa menangkapnya
+				throw new Error(errorMessage);
 			}
 		});
 
 		console.log("✅ Database initialized successfully");
 		return db;
 	} catch (error) {
-		console.error("❌ Failed to initialize database:", error);
+		console.error("❌ Failed to initialize database wrapper:", error);
 		throw error;
 	}
 };

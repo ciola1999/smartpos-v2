@@ -56,6 +56,7 @@ export const products = sqliteTable("products", {
 
 	stock: integer("stock").notNull().default(0),
 	minStock: integer("min_stock").notNull().default(5),
+	unit: text("unit").default("pcs"),
 	isActive: integer("is_active", { mode: "boolean" }).default(true).notNull(),
 	...timestamps,
 });
