@@ -1,20 +1,25 @@
 "use client";
 
-import { CheckCircle2, Loader2, Terminal, XCircle } from "lucide-react";
-// 👇 1. Tambahkan import ini
 import { initDb } from "@/lib/db";
 import { runSystemSetup } from "@/lib/setup";
-import { cn } from "@/lib/utils";
+import { cn, isTauri } from "@/lib/utils"; // 👈 Pastikan import isTauri ada
+import {
+	CheckCircle2,
+	Loader2,
+	MonitorX,
+	Terminal,
+	XCircle,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 export default function Page() {
-	// 👇 2. Inisialisasi Router
 	const router = useRouter();
 
-	const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">(
-		"idle",
-	);
+	// 👇 Tambahkan "web" ke dalam tipe status
+	const [status, setStatus] = useState<
+		"idle" | "loading" | "ready" | "error" | "web"
+	>("idle");
 	const [message, setMessage] = useState("Booting System...");
 	const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
@@ -23,16 +28,24 @@ export default function Page() {
 
 		const bootSequence = async () => {
 			if (!mounted) return;
+
+			// 🛡️ 1. CEK ENVIRONMENT DULU
+			// Jika bukan Tauri (berarti di Browser/Vercel), stop proses boot DB
+			if (!isTauri()) {
+				if (mounted) setStatus("web");
+				return;
+			}
+
 			setStatus("loading");
 
 			try {
-				// 1. Initialize Connection
+				// 2. Initialize Connection (Hanya jalan di Desktop App)
 				setMessage("🔌 Connecting to Local Database...");
 				await initDb();
 
-				// 2. Run Migrations & Seeding
+				// 3. Run Migrations & Seeding
 				setMessage("⚙️ Verifying System Integrity...");
-				await new Promise((r) => setTimeout(r, 800));
+				await new Promise((r) => setTimeout(r, 800)); // Pura-pura loading biar smooth
 
 				await runSystemSetup();
 
@@ -57,17 +70,48 @@ export default function Page() {
 		};
 	}, []);
 
-	// 👇 3. Buat fungsi navigasi sederhana
 	const handleLogin = () => {
-		// Di sini nanti bisa ditaruh logic simpan session
 		router.push("/dashboard");
 	};
 
+	// ------------------------------------------------------------------
+	// 🖥️ TAMPILAN KHUSUS WEB (VERCEL / BROWSER)
+	// ------------------------------------------------------------------
+	if (status === "web") {
+		return (
+			<div className="flex h-screen flex-col items-center justify-center bg-zinc-950 p-8 text-center text-white animate-in fade-in zoom-in duration-500">
+				<div className="mb-6 rounded-full bg-zinc-900 p-6 border border-zinc-800">
+					<MonitorX className="h-16 w-16 text-zinc-500" />
+				</div>
+				<h1 className="text-3xl font-bold tracking-tight mb-2">
+					Smart POS (Web View)
+				</h1>
+				<p className="text-zinc-400 max-w-md mb-8">
+					Aplikasi ini adalah <strong>Local-First Desktop App</strong>. Database
+					berjalan di komputer pengguna, bukan di server.
+				</p>
+
+				<div className="p-4 border border-yellow-500/20 bg-yellow-500/10 rounded-lg max-w-sm">
+					<p className="text-sm text-yellow-500 font-medium">
+						⚠️ Mode Demonstrasi Terbatas
+					</p>
+					<p className="text-xs text-yellow-200/70 mt-1">
+						Silakan download file .exe / .dmg untuk menjalankan aplikasi dengan
+						fitur database penuh.
+					</p>
+				</div>
+			</div>
+		);
+	}
+
+	// ------------------------------------------------------------------
+	// 🖥️ TAMPILAN APLIKASI DESKTOP (LOADING / READY / ERROR)
+	// ------------------------------------------------------------------
 	return (
 		<div className="flex h-full flex-col items-center justify-center gap-6 p-8 text-center animate-in fade-in zoom-in duration-500">
 			{/* Header */}
 			<div className="space-y-2">
-				<h1 className="text-3xl font-bold tracking-tight bg-linear-to-br from-foreground to-muted-foreground bg-clip-text text-transparent">
+				<h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-muted-foreground bg-clip-text text-transparent">
 					Smart POS
 				</h1>
 				<p className="text-sm text-muted-foreground font-mono">
@@ -135,8 +179,8 @@ export default function Page() {
 
 						<button
 							type="button"
-							onClick={handleLogin} // 👈 4. Pasang handler di sini
-							className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							onClick={handleLogin}
+							className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
 						>
 							Masuk ke Dashboard
 						</button>

@@ -8,3 +8,11 @@ import { twMerge } from "tailwind-merge";
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
 }
+
+// 👇 Tambahkan fungsi ini
+export function isTauri(): boolean {
+	return (
+		typeof window !== "undefined" &&
+		typeof window.__TAURI_INTERNALS__ !== "undefined"
+	);
+}
