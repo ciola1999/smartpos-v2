@@ -1,6 +1,6 @@
 import * as schema from "@/db/schema";
 import { getDb } from "@/lib/db";
-import type { CheckoutPayload } from "@/lib/validators";
+import type { CheckoutPayload } from "@/lib/validations/schema";
 import { eq, inArray, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 
