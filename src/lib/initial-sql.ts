@@ -1,46 +1,5 @@
 export const INITIAL_MIGRATION_SQL = `
-CREATE TABLE IF NOT EXISTS "categories" (
-    "id" text PRIMARY KEY NOT NULL,
-    "name" text NOT NULL,
-    "description" text,
-    "slug" text NOT NULL,
-    "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
-    "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
-    "deleted_at" integer
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "categories_slug_unique" ON "categories" ("slug");
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "discounts" (
-    "id" text PRIMARY KEY NOT NULL,
-    "code" text NOT NULL,
-    "name" text NOT NULL,
-    "type" text NOT NULL,
-    "value" text NOT NULL,
-    "start_date" integer,
-    "end_date" integer,
-    "is_active" integer DEFAULT true,
-    "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
-    "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
-    "deleted_at" integer
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "discounts_code_unique" ON "discounts" ("code");
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "members" (
-    "id" text PRIMARY KEY NOT NULL,
-    "name" text NOT NULL,
-    "phone" text NOT NULL,
-    "email" text,
-    "points" integer DEFAULT 0,
-    "tier" text DEFAULT 'Silver',
-    "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
-    "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
-    "deleted_at" integer
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "members_phone_unique" ON "members" ("phone");
---> statement-breakpoint
+-- 1. USERS
 CREATE TABLE IF NOT EXISTS "users" (
     "id" text PRIMARY KEY NOT NULL,
     "name" text NOT NULL,
@@ -48,40 +7,32 @@ CREATE TABLE IF NOT EXISTS "users" (
     "password" text NOT NULL,
     "role" text DEFAULT 'cashier' NOT NULL,
     "avatar_url" text,
-    "is_active" integer DEFAULT true,
+    "is_active" integer DEFAULT 1,
     "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
     "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
-    "deleted_at" integer
+    "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "users_username_unique" ON "users" ("username");
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "store_settings" (
-    "id" text PRIMARY KEY NOT NULL,
-    "name" text DEFAULT 'Smart POS Store' NOT NULL,
-    "description" text,
-    "address" text,
-    "phone" text,
-    "email" text,
-    "website" text,
-    "logo_url" text,
-    "currency" text DEFAULT 'IDR',
-    "receipt_footer" text DEFAULT 'Terima kasih atas kunjungan Anda!',
-    "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
-    "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
-    "deleted_at" integer
-);
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "taxes" (
+
+-- 2. CATEGORIES
+CREATE TABLE IF NOT EXISTS "categories" (
     "id" text PRIMARY KEY NOT NULL,
     "name" text NOT NULL,
-    "rate" text NOT NULL,
-    "is_active" integer DEFAULT true,
+    "description" text,
+    "slug" text NOT NULL,
     "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
     "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
-    "deleted_at" integer
+    "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "categories_slug_unique" ON "categories" ("slug");
+
+-- 3. PRODUCTS
 CREATE TABLE IF NOT EXISTS "products" (
     "id" text PRIMARY KEY NOT NULL,
     "category_id" text,
@@ -95,10 +46,13 @@ CREATE TABLE IF NOT EXISTS "products" (
     "stock" integer DEFAULT 0 NOT NULL,
     "min_stock" integer DEFAULT 5 NOT NULL,
     "unit" text DEFAULT 'pcs',
-    "is_active" integer DEFAULT true NOT NULL,
+    "is_active" integer DEFAULT 1 NOT NULL,
+    "has_recipe" integer DEFAULT 0 NOT NULL,
     "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
     "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
     "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL,
     FOREIGN KEY ("category_id") REFERENCES "categories"("id") ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
@@ -106,6 +60,103 @@ CREATE UNIQUE INDEX IF NOT EXISTS "products_barcode_unique" ON "products" ("barc
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "products_sku_unique" ON "products" ("sku");
 --> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "product_name_idx" ON "products" ("name");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "product_category_idx" ON "products" ("category_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "product_active_idx" ON "products" ("is_active");
+
+-- 4. INGREDIENTS (NEW)
+CREATE TABLE IF NOT EXISTS "ingredients" (
+    "id" text PRIMARY KEY NOT NULL,
+    "name" text NOT NULL,
+    "unit" text DEFAULT 'gr',
+    "cost_per_unit" text DEFAULT '0',
+    "calories" real DEFAULT 0,
+    "protein" real DEFAULT 0,
+    "carbs" real DEFAULT 0,
+    "sugar" real DEFAULT 0,
+    "fat" real DEFAULT 0,
+    "sodium" real DEFAULT 0,
+    "is_gluten_free" integer DEFAULT 1,
+    "contains_dairy" integer DEFAULT 0,
+    "contains_nuts" integer DEFAULT 0,
+    "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "ingredient_name_idx" ON "ingredients" ("name");
+
+-- 5. PRODUCT RECIPES (NEW)
+CREATE TABLE IF NOT EXISTS "product_recipes" (
+    "id" text PRIMARY KEY NOT NULL,
+    "product_id" text NOT NULL,
+    "ingredient_id" text NOT NULL,
+    "quantity" real NOT NULL,
+    "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL,
+    FOREIGN KEY ("product_id") REFERENCES "products"("id") ON UPDATE no action ON DELETE cascade,
+    FOREIGN KEY ("ingredient_id") REFERENCES "ingredients"("id") ON UPDATE no action ON DELETE restrict
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "recipe_product_idx" ON "product_recipes" ("product_id");
+
+-- 6. MEMBERS
+CREATE TABLE IF NOT EXISTS "members" (
+    "id" text PRIMARY KEY NOT NULL,
+    "name" text NOT NULL,
+    "phone" text NOT NULL,
+    "email" text,
+    "points" integer DEFAULT 0,
+    "tier" text DEFAULT 'Silver',
+    "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "members_phone_unique" ON "members" ("phone");
+
+-- 7. DISCOUNTS
+CREATE TABLE IF NOT EXISTS "discounts" (
+    "id" text PRIMARY KEY NOT NULL,
+    "code" text NOT NULL,
+    "name" text NOT NULL,
+    "type" text NOT NULL,
+    "value" text NOT NULL,
+    "start_date" integer,
+    "end_date" integer,
+    "is_active" integer DEFAULT 1,
+    "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "discounts_code_unique" ON "discounts" ("code");
+
+-- 8. TAXES
+CREATE TABLE IF NOT EXISTS "taxes" (
+    "id" text PRIMARY KEY NOT NULL,
+    "name" text NOT NULL,
+    "rate" text NOT NULL,
+    "is_active" integer DEFAULT 1,
+    "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL
+);
+
+-- 9. ORDERS
 CREATE TABLE IF NOT EXISTS "orders" (
     "id" text PRIMARY KEY NOT NULL,
     "member_id" text,
@@ -129,11 +180,20 @@ CREATE TABLE IF NOT EXISTS "orders" (
     "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
     "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
     "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL,
     FOREIGN KEY ("member_id") REFERENCES "members"("id") ON UPDATE no action ON DELETE set null,
     FOREIGN KEY ("discount_id") REFERENCES "discounts"("id") ON UPDATE no action ON DELETE set null,
     FOREIGN KEY ("cashier_id") REFERENCES "users"("id") ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "order_created_at_idx" ON "orders" ("created_at");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "order_status_idx" ON "orders" ("status");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "order_member_idx" ON "orders" ("member_id");
+
+-- 10. ORDER ITEMS
 CREATE TABLE IF NOT EXISTS "order_items" (
     "id" text PRIMARY KEY NOT NULL,
     "order_id" text NOT NULL,
@@ -147,6 +207,11 @@ CREATE TABLE IF NOT EXISTS "order_items" (
     FOREIGN KEY ("product_id") REFERENCES "products"("id") ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "order_item_order_idx" ON "order_items" ("order_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "order_item_product_idx" ON "order_items" ("product_id");
+
+-- 11. ORDER PAYMENTS
 CREATE TABLE IF NOT EXISTS "order_payments" (
     "id" text PRIMARY KEY NOT NULL,
     "order_id" text NOT NULL,
@@ -156,6 +221,69 @@ CREATE TABLE IF NOT EXISTS "order_payments" (
     "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
     "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
     "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL,
     FOREIGN KEY ("order_id") REFERENCES "orders"("id") ON UPDATE no action ON DELETE cascade
+);
+
+-- 12. INVENTORY LOGS (NEW)
+CREATE TABLE IF NOT EXISTS "inventory_logs" (
+    "id" text PRIMARY KEY NOT NULL,
+    "product_id" text NOT NULL,
+    "change_amount" integer NOT NULL,
+    "final_stock" integer NOT NULL,
+    "type" text NOT NULL,
+    "note" text,
+    "reference_id" text,
+    "user_id" text,
+    "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL,
+    FOREIGN KEY ("product_id") REFERENCES "products"("id") ON UPDATE no action ON DELETE no action,
+    FOREIGN KEY ("user_id") REFERENCES "users"("id") ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "inv_log_product_idx" ON "inventory_logs" ("product_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "inv_log_date_idx" ON "inventory_logs" ("created_at");
+
+-- 13. SHIFTS (NEW)
+CREATE TABLE IF NOT EXISTS "shifts" (
+    "id" text PRIMARY KEY NOT NULL,
+    "cashier_id" text NOT NULL,
+    "start_time" integer NOT NULL,
+    "end_time" integer,
+    "start_cash" text NOT NULL,
+    "expected_end_cash" text,
+    "actual_end_cash" text,
+    "difference" text,
+    "status" text DEFAULT 'open',
+    "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL,
+    FOREIGN KEY ("cashier_id") REFERENCES "users"("id") ON UPDATE no action ON DELETE no action
+);
+
+-- 14. STORE SETTINGS
+CREATE TABLE IF NOT EXISTS "store_settings" (
+    "id" text PRIMARY KEY NOT NULL,
+    "name" text DEFAULT 'Smart POS Store' NOT NULL,
+    "description" text,
+    "address" text,
+    "phone" text,
+    "email" text,
+    "website" text,
+    "logo_url" text,
+    "currency" text DEFAULT 'IDR',
+    "receipt_footer" text DEFAULT 'Terima kasih atas kunjungan Anda!',
+    "created_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "updated_at" integer DEFAULT (strftime('%s', 'now')) NOT NULL,
+    "deleted_at" integer,
+    "version" integer DEFAULT 1 NOT NULL,
+    "sync_status" integer DEFAULT 0 NOT NULL
 );
 `;
