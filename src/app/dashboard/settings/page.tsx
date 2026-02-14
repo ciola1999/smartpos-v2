@@ -1,5 +1,7 @@
 "use client";
 
+import { format } from "date-fns";
+import { id } from "date-fns/locale";
 import {
 	AlertCircle,
 	ArrowDownCircle,
@@ -14,6 +16,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useStoreSettings } from "@/hooks/use-store-settings";
+import { useSyncSettings } from "@/hooks/use-sync-settings";
 import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
@@ -70,19 +73,27 @@ export default function SettingsPage() {
 
 // --- SUB-COMPONENT: DATABASE SETTINGS (Sync Control) ---
 function DatabaseSettings() {
-	const [isSyncing, setIsSyncing] = useState(false);
-	const [status, _setStatus] = useState<"connected" | "disconnected">(
-		"disconnected",
-	);
+	const {
+		form,
+		isLoading,
+		isPending,
+		isSyncing,
+		lastSyncAt,
+		testConnection,
+		saveSettings,
+		handleManualSync,
+	} = useSyncSettings();
 
-	const handleManualSync = async (type: "PUSH" | "PULL") => {
-		setIsSyncing(true);
-		// Simulasi Sync Process
-		console.log(`Starting ${type} sequence...`);
-		await new Promise((r) => setTimeout(r, 2000));
-		setIsSyncing(false);
-		alert(`${type} Berhasil! (Simulasi)`);
-	};
+	if (isLoading) {
+		return (
+			<div className="flex flex-col items-center justify-center p-12 space-y-4 rounded-xl border bg-card/50">
+				<Loader2 className="h-8 w-8 animate-spin text-primary" />
+				<p className="text-sm text-muted-foreground">
+					Memuat konfigurasi cloud...
+				</p>
+			</div>
+		);
+	}
 
 	return (
 		<div className="grid gap-6 md:grid-cols-2">
@@ -97,39 +108,67 @@ function DatabaseSettings() {
 						Hubungkan database lokal dengan cloud untuk backup & multi-device.
 					</p>
 				</div>
-				<div className="p-6 space-y-4">
+				<form onSubmit={saveSettings} className="p-6 space-y-4">
 					<div className="space-y-2">
-						<label htmlFor="projectUrl" className="text-sm font-medium">
+						<label htmlFor="cloudUrl" className="text-sm font-medium">
 							Project URL
 						</label>
 						<input
-							id="projectUrl"
+							id="cloudUrl"
+							{...form.register("cloudUrl")}
 							type="text"
 							placeholder="https://xyz.supabase.co"
 							className="w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
 						/>
+						{form.formState.errors.cloudUrl && (
+							<p className="text-xs text-destructive">
+								{form.formState.errors.cloudUrl.message}
+							</p>
+						)}
 					</div>
 					<div className="space-y-2">
-						<label htmlFor="anonPublicKey" className="text-sm font-medium">
+						<label htmlFor="cloudKey" className="text-sm font-medium">
 							Anon Public Key
 						</label>
 						<input
-							id="anonPublicKey"
+							id="cloudKey"
+							{...form.register("cloudKey")}
 							type="password"
 							placeholder="eyJh..."
 							className="w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
 						/>
+						{form.formState.errors.cloudKey && (
+							<p className="text-xs text-destructive">
+								{form.formState.errors.cloudKey.message}
+							</p>
+						)}
 					</div>
-					<div className="pt-2">
+					<div className="pt-2 flex items-center gap-3">
+						<button
+							type="submit"
+							disabled={isPending}
+							className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+						>
+							{isPending ? (
+								<Loader2 className="h-4 w-4 animate-spin" />
+							) : (
+								<Save className="h-4 w-4" />
+							)}
+							Simpan Config
+						</button>
 						<button
 							type="button"
-							className="flex items-center gap-2 rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+							onClick={testConnection}
+							disabled={isPending}
+							className="flex items-center gap-2 rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50"
 						>
-							<RefreshCw className="h-4 w-4" />
+							<RefreshCw
+								className={cn("h-4 w-4", isPending && "animate-spin")}
+							/>
 							Test Connection
 						</button>
 					</div>
-				</div>
+				</form>
 			</div>
 
 			{/* 2. Sync Status & Actions */}
@@ -141,22 +180,24 @@ function DatabaseSettings() {
 						<div
 							className={cn(
 								"flex h-12 w-12 items-center justify-center rounded-full bg-muted",
-								status === "connected"
+								lastSyncAt
 									? "bg-green-500/10 text-green-500"
 									: "bg-red-500/10 text-red-500",
 							)}
 						>
-							{status === "connected" ? <CheckCircle2 /> : <AlertCircle />}
+							{lastSyncAt ? <CheckCircle2 /> : <AlertCircle />}
 						</div>
 						<div>
 							<p className="font-medium">
-								{status === "connected"
-									? "Terhubung ke Cloud"
-									: "Offline / Lokal Mode"}
+								{lastSyncAt ? "Cloud Activated" : "Offline / Lokal Mode"}
 							</p>
 							<p className="text-sm text-muted-foreground">
 								Terakhir sync:{" "}
-								<span className="font-mono text-xs">Belum pernah</span>
+								<span className="font-mono text-xs">
+									{lastSyncAt && !Number.isNaN(new Date(lastSyncAt).getTime())
+										? format(new Date(lastSyncAt), "PPPp", { locale: id })
+										: "Belum pernah"}
+								</span>
 							</p>
 						</div>
 					</div>
@@ -180,7 +221,7 @@ function DatabaseSettings() {
 							/>
 							<span className="text-sm font-medium">Pull from Cloud</span>
 							<span className="text-xs text-muted-foreground text-center">
-								Timpa data lokal dengan cloud
+								Ambil data terbaru dari cloud
 							</span>
 						</button>
 
@@ -198,7 +239,7 @@ function DatabaseSettings() {
 							/>
 							<span className="text-sm font-medium">Push to Cloud</span>
 							<span className="text-xs text-muted-foreground text-center">
-								Upload data lokal ke cloud
+								Kirim perubahan lokal ke cloud
 							</span>
 						</button>
 					</div>

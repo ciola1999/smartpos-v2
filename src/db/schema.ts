@@ -11,10 +11,10 @@ import {
 
 const timestamps = {
 	createdAt: integer("created_at", { mode: "timestamp" })
-		.default(sql`(strftime('%s', 'now'))`)
+		.default(sql`(strftime('%s', 'now') * 1000)`)
 		.notNull(),
 	updatedAt: integer("updated_at", { mode: "timestamp" })
-		.default(sql`(strftime('%s', 'now'))`)
+		.default(sql`(strftime('%s', 'now') * 1000)`)
 		.$onUpdate(() => new Date())
 		.notNull(),
 	deletedAt: integer("deleted_at", { mode: "timestamp" }),
@@ -37,7 +37,7 @@ export const users = sqliteTable("users", {
 	role: text("role", { enum: ["admin", "cashier"] })
 		.default("cashier")
 		.notNull(),
-	avatarUrl: text("avatar_url"),
+	avatarUrl: text("avatar_url").default(""),
 	isActive: integer("is_active", { mode: "boolean" }).default(true),
 	...timestamps,
 	...syncColumns,
@@ -317,6 +317,12 @@ export const storeSettings = sqliteTable("store_settings", {
 	receiptFooter: text("receipt_footer").default(
 		"Terima kasih atas kunjungan Anda!",
 	),
+
+	// ☁️ Cloud Sync Config
+	cloudUrl: text("cloud_url"),
+	cloudKey: text("cloud_key"),
+	lastSyncAt: integer("last_sync_at", { mode: "timestamp" }),
+
 	...timestamps,
 	...syncColumns,
 });

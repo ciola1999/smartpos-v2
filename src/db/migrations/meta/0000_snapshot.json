@@ -1,7 +1,7 @@
 {
 	"version": "6",
 	"dialect": "sqlite",
-	"id": "9fc5763e-0da3-443a-adee-30c60f026ed4",
+	"id": "d38164fa-b2be-47ec-b9a0-4482a9b1a028",
 	"prevId": "00000000-0000-0000-0000-000000000000",
 	"tables": {
 		"categories": {
@@ -41,7 +41,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -49,7 +49,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",
@@ -153,7 +153,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -161,7 +161,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",
@@ -310,7 +310,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -318,7 +318,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",
@@ -421,7 +421,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -429,7 +429,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",
@@ -544,7 +544,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -552,7 +552,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",
@@ -731,7 +731,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -739,7 +739,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",
@@ -924,7 +924,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -932,7 +932,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",
@@ -1045,7 +1045,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -1053,7 +1053,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",
@@ -1224,7 +1224,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -1232,7 +1232,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",
@@ -1373,7 +1373,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -1381,7 +1381,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",
@@ -1499,13 +1499,34 @@
 					"autoincrement": false,
 					"default": "'Terima kasih atas kunjungan Anda!'"
 				},
+				"cloud_url": {
+					"name": "cloud_url",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"cloud_key": {
+					"name": "cloud_key",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"last_sync_at": {
+					"name": "last_sync_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
 				"created_at": {
 					"name": "created_at",
 					"type": "integer",
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -1513,7 +1534,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",
@@ -1583,7 +1604,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -1591,7 +1612,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",
@@ -1667,7 +1688,8 @@
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false,
-					"autoincrement": false
+					"autoincrement": false,
+					"default": "''"
 				},
 				"is_active": {
 					"name": "is_active",
@@ -1683,7 +1705,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"updated_at": {
 					"name": "updated_at",
@@ -1691,7 +1713,7 @@
 					"primaryKey": false,
 					"notNull": true,
 					"autoincrement": false,
-					"default": "(strftime('%s', 'now'))"
+					"default": "(strftime('%s', 'now') * 1000)"
 				},
 				"deleted_at": {
 					"name": "deleted_at",

@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
-import * as schema from "@/db/schema"; // Pastikan import schema benar
-import { getDb } from "@/lib/db";
+import * as schema from "@/db/schema";
+import { initDb } from "@/lib/db";
 
 // 🆔 ID Konstanta (Harus String, bukan Angka)
 const STORE_ID = "STORE_MAIN";
@@ -17,17 +17,19 @@ type UpdateStoreInput = Partial<
 		| "logoUrl"
 		| "currency"
 		| "receiptFooter"
+		| "cloudUrl"
+		| "cloudKey"
+		| "lastSyncAt"
 	>
 >;
 
 export const StoreService = {
 	getSettings: async () => {
 		try {
-			const db = getDb();
+			const db = await initDb();
 			const result = await db
 				.select()
 				.from(schema.storeSettings)
-				// 👇 PERBAIKAN DI SINI: Gunakan string STORE_ID, bukan angka 1
 				.where(eq(schema.storeSettings.id, STORE_ID))
 				.limit(1);
 
@@ -39,7 +41,7 @@ export const StoreService = {
 	},
 
 	updateSettings: async (input: UpdateStoreInput) => {
-		const db = getDb();
+		const db = await initDb();
 
 		// Pastikan setting sudah ada sebelum update
 		const existing = await StoreService.getSettings();
@@ -66,7 +68,7 @@ export const StoreService = {
 	},
 
 	initDefault: async () => {
-		const db = getDb();
+		const db = await initDb();
 		const existing = await StoreService.getSettings();
 
 		if (!existing) {

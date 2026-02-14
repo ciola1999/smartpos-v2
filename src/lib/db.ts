@@ -1,6 +1,6 @@
+import * as schema from "@/db/schema"; // 🔥 WAJIB IMPORT SCHEMA
 import Database from "@tauri-apps/plugin-sql";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
-import * as schema from "@/db/schema"; // 🔥 WAJIB IMPORT SCHEMA
 
 // Definisikan Tipe DB agar TypeScript tau struktur tabel kita
 export type TauriDB = ReturnType<typeof drizzle<typeof schema>>;
@@ -20,12 +20,6 @@ export const initDb = async (): Promise<TauriDB> => {
 		db = drizzle(
 			async (sql, params, method) => {
 				try {
-					const rows = await sqlite.select(sql, params);
-
-					// Logic Proxy Drizzle
-					// Drizzle mengirim method "run", "all", "get", "values"
-					// Tapi Tauri Plugin SQL utamanya pakai .select() (read) dan .execute() (write)
-
 					if (method === "run") {
 						// Untuk Insert/Update/Delete, Drizzle butuh return object spesifik
 						const res = await sqlite.execute(sql, params);
@@ -37,6 +31,13 @@ export const initDb = async (): Promise<TauriDB> => {
 					}
 
 					// Untuk Select
+					const rows = await sqlite.select(sql, params);
+
+					// 🔍 DIAGNOSTIC LOG (TEMPORARY)
+					if (sql.includes("FROM `users`")) {
+						console.log("[DB Proxy] Raw rows for users table:", rows);
+					}
+
 					return { rows: rows as unknown[] }; // Strict type casting
 				} catch (e: unknown) {
 					const errorMessage =
