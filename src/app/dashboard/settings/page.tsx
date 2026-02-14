@@ -1,6 +1,5 @@
 "use client";
 
-import { cn } from "@/lib/utils"; // Pastikan utils ada, atau hapus cn dan pakai string biasa
 import {
 	AlertCircle,
 	ArrowDownCircle,
@@ -8,11 +7,14 @@ import {
 	CheckCircle2,
 	CloudCog,
 	Database,
+	Loader2,
 	RefreshCw,
 	Save,
 	Store,
 } from "lucide-react";
 import { useState } from "react";
+import { useStoreSettings } from "@/hooks/use-store-settings";
+import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
 	const [activeTab, setActiveTab] = useState<"store" | "database">("database");
@@ -69,7 +71,7 @@ export default function SettingsPage() {
 // --- SUB-COMPONENT: DATABASE SETTINGS (Sync Control) ---
 function DatabaseSettings() {
 	const [isSyncing, setIsSyncing] = useState(false);
-	const [status, setStatus] = useState<"connected" | "disconnected">(
+	const [status, _setStatus] = useState<"connected" | "disconnected">(
 		"disconnected",
 	);
 
@@ -206,55 +208,120 @@ function DatabaseSettings() {
 	);
 }
 
-// --- SUB-COMPONENT: STORE SETTINGS (Placeholder) ---
+// --- SUB-COMPONENT: STORE SETTINGS ---
 function StoreSettings() {
+	const { form, isLoading, isPending, onSubmit } = useStoreSettings();
+
+	if (isLoading) {
+		return (
+			<div className="flex flex-col items-center justify-center p-12 space-y-4 rounded-xl border bg-card/50">
+				<Loader2 className="h-8 w-8 animate-spin text-primary" />
+				<p className="text-sm text-muted-foreground">Mengambil data toko...</p>
+			</div>
+		);
+	}
+
 	return (
-		<div className="rounded-xl border bg-card text-card-foreground shadow-sm">
+		<form
+			onSubmit={onSubmit}
+			className="rounded-xl border bg-card text-card-foreground shadow-sm"
+		>
 			<div className="p-6 space-y-4">
 				<h3 className="text-lg font-semibold">Informasi Toko</h3>
 				<div className="grid gap-4 md:grid-cols-2">
 					<div className="space-y-2">
-						<label htmlFor="namaToko" className="text-sm font-medium">
+						<label htmlFor="name" className="text-sm font-medium">
 							Nama Toko
 						</label>
 						<input
-							id="namaToko"
+							id="name"
+							{...form.register("name")}
 							type="text"
-							className="w-full rounded-md border p-2"
-							defaultValue="My Smart Store"
+							className={cn(
+								"w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring",
+								form.formState.errors.name && "border-destructive",
+							)}
+							placeholder="Nama Toko Anda"
 						/>
+						{form.formState.errors.name && (
+							<p className="text-xs text-destructive">
+								{form.formState.errors.name.message}
+							</p>
+						)}
 					</div>
 					<div className="space-y-2">
-						<label htmlFor="noTelp" className="text-sm font-medium">
+						<label htmlFor="phone" className="text-sm font-medium">
 							No. Telepon
 						</label>
 						<input
-							id="noTelp"
+							id="phone"
+							{...form.register("phone")}
 							type="text"
-							className="w-full rounded-md border p-2"
+							className="w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+							placeholder="08123456789"
 						/>
 					</div>
 					<div className="space-y-2">
-						<label htmlFor="alamat" className="text-sm font-medium">
-							Alamat
+						<label htmlFor="email" className="text-sm font-medium">
+							Email Bisnis
+						</label>
+						<input
+							id="email"
+							{...form.register("email")}
+							type="email"
+							className={cn(
+								"w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring",
+								form.formState.errors.email && "border-destructive",
+							)}
+							placeholder="admin@toko.com"
+						/>
+						{form.formState.errors.email && (
+							<p className="text-xs text-destructive">
+								{form.formState.errors.email.message}
+							</p>
+						)}
+					</div>
+					<div className="space-y-2">
+						<label htmlFor="currency" className="text-sm font-medium">
+							Mata Uang
+						</label>
+						<select
+							id="currency"
+							{...form.register("currency")}
+							className="w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+						>
+							<option value="IDR">IDR (Rupiah)</option>
+							<option value="USD">USD (Dollar)</option>
+						</select>
+					</div>
+					<div className="space-y-2 md:col-span-2">
+						<label htmlFor="address" className="text-sm font-medium">
+							Alamat Lengkap
 						</label>
 						<textarea
-							id="alamat"
-							className="w-full rounded-md border p-2"
+							id="address"
+							{...form.register("address")}
+							className="w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
 							rows={3}
+							placeholder="Alamat toko..."
 						/>
 					</div>
 				</div>
 				<div className="pt-4 flex justify-end">
 					<button
-						type="button"
-						className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+						type="submit"
+						disabled={isPending}
+						className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all shadow-sm"
 					>
-						<Save className="h-4 w-4" />
-						Simpan Perubahan
+						{isPending ? (
+							<Loader2 className="h-4 w-4 animate-spin" />
+						) : (
+							<Save className="h-4 w-4" />
+						)}
+						{isPending ? "Menyimpan..." : "Simpan Profil Toko"}
 					</button>
 				</div>
 			</div>
-		</div>
+		</form>
 	);
 }

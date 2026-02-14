@@ -1,8 +1,5 @@
 "use client";
 
-import { initDb } from "@/lib/db";
-import { runSystemSetup } from "@/lib/setup";
-import { cn, isTauri } from "@/lib/utils"; // 👈 Pastikan import isTauri ada
 import {
 	CheckCircle2,
 	Loader2,
@@ -12,6 +9,9 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { initDb } from "@/lib/db";
+import { runSystemSetup } from "@/lib/setup";
+import { cn, isTauri } from "@/lib/utils"; // 👈 Pastikan import isTauri ada
 
 export default function Page() {
 	const router = useRouter();

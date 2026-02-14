@@ -1,8 +1,8 @@
+import { and, desc, eq, like, or, sql } from "drizzle-orm";
+import { v7 as uuidv7 } from "uuid";
 import { inventoryLogs, products } from "@/db/schema";
 import { getDb } from "@/lib/db";
 import { type ProductInput, productSchema } from "@/lib/validations/product";
-import { and, desc, eq, like, or, sql } from "drizzle-orm";
-import { v7 as uuidv7 } from "uuid";
 
 export const ProductService = {
 	// --- READ ---
@@ -148,7 +148,7 @@ export const ProductService = {
 				.where(eq(products.id, id));
 
 			return { success: true };
-		} catch (error) {
+		} catch (_error) {
 			return { success: false, error: "Gagal menghapus produk." };
 		}
 	},

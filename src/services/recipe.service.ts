@@ -1,6 +1,6 @@
+import { eq, sql } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { getDb } from "@/lib/db";
-import { eq, sql } from "drizzle-orm";
 
 export const RecipeService = {
 	/**
@@ -101,9 +101,9 @@ export const RecipeService = {
 				success: true,
 				data: {
 					calories: Math.round(nutrition.totalCalories || 0), // Bulatkan kalori
-					protein: (nutrition.totalProtein || 0).toFixed(1) + "g",
-					sugar: (nutrition.totalSugar || 0).toFixed(1) + "g",
-					carbs: (nutrition.totalCarbs || 0).toFixed(1) + "g",
+					protein: `${(nutrition.totalProtein || 0).toFixed(1)}g`,
+					sugar: `${(nutrition.totalSugar || 0).toFixed(1)}g`,
+					carbs: `${(nutrition.totalCarbs || 0).toFixed(1)}g`,
 					allergens: {
 						dairy: Boolean(nutrition.containsDairy),
 						nuts: Boolean(nutrition.containsNuts),

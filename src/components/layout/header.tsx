@@ -1,14 +1,14 @@
 "use client";
 
-import { useSidebar } from "@/hooks/use-sidebar";
-import { cn } from "@/lib/utils";
 import { Bell, Menu, Search, Wifi, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useSidebar } from "@/hooks/use-sidebar";
+import { cn } from "@/lib/utils";
 
 export function Header() {
 	const { toggle } = useSidebar();
 	const [mounted, setMounted] = useState(false);
-	const [isOnline, setIsOnline] = useState(true); // Nanti diganti real hook
+	const [isOnline, _setIsOnline] = useState(true); // Nanti diganti real hook
 
 	// Hydration fix (menghindari error server-client mismatch untuk tanggal/jam)
 	useEffect(() => {

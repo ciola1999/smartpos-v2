@@ -1,8 +1,8 @@
-import { storeSettings, users } from "@/db/schema";
-import { getDb } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
+import { storeSettings, users } from "@/db/schema";
+import { getDb } from "@/lib/db";
 import { INITIAL_MIGRATION_SQL } from "./initial-sql";
 
 type DrizzleDB = ReturnType<typeof getDb>;

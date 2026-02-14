@@ -1,7 +1,5 @@
 "use client";
 
-import { useSidebar } from "@/hooks/use-sidebar";
-import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "framer-motion";
 import {
 	ChevronLeft,
@@ -15,6 +13,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSidebar } from "@/hooks/use-sidebar";
+import { cn } from "@/lib/utils";
 
 // Definisi Menu (Strict Type)
 type MenuItem = {

@@ -9,14 +9,19 @@ export const metadata: Metadata = {
 	description: "Point of Sale System",
 };
 
+import { Toaster } from "sonner";
+
 export default function RootLayout({
 	children,
 }: Readonly<{
 	children: React.ReactNode;
 }>) {
 	return (
-		<html lang="id">
-			<body className={inter.className}>{children}</body>
+		<html lang="id" className="dark">
+			<body className={inter.className}>
+				{children}
+				<Toaster position="top-right" richColors closeButton />
+			</body>
 		</html>
 	);
 }

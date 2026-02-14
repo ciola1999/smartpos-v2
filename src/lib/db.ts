@@ -1,6 +1,6 @@
-import * as schema from "@/db/schema"; // 🔥 WAJIB IMPORT SCHEMA
 import Database from "@tauri-apps/plugin-sql";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
+import * as schema from "@/db/schema"; // 🔥 WAJIB IMPORT SCHEMA
 
 // Definisikan Tipe DB agar TypeScript tau struktur tabel kita
 export type TauriDB = ReturnType<typeof drizzle<typeof schema>>;

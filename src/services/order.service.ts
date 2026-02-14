@@ -1,8 +1,8 @@
+import { eq, inArray, sql } from "drizzle-orm";
+import { v7 as uuidv7 } from "uuid";
 import * as schema from "@/db/schema";
 import { getDb } from "@/lib/db";
 import type { CheckoutPayload } from "@/lib/validations/schema";
-import { eq, inArray, sql } from "drizzle-orm";
-import { v7 as uuidv7 } from "uuid";
 
 // Custom Error Class agar UI bisa membedakan error validasi vs error sistem
 class TransactionError extends Error {
@@ -73,7 +73,7 @@ export const OrderService = {
 
 				// 💰 Financial: Hitung harga & modal
 				const price = parseFloat(product.price);
-				const cost = parseFloat(product.costPrice);
+				const _cost = parseFloat(product.costPrice);
 				const lineTotal = price * item.quantity;
 
 				calculatedSubtotal += lineTotal;

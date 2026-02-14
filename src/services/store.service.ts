@@ -1,6 +1,6 @@
+import { eq, sql } from "drizzle-orm";
 import * as schema from "@/db/schema"; // Pastikan import schema benar
 import { getDb } from "@/lib/db";
-import { eq, sql } from "drizzle-orm";
 
 // 🆔 ID Konstanta (Harus String, bukan Angka)
 const STORE_ID = "STORE_MAIN";
@@ -83,7 +83,6 @@ export const StoreService = {
 					version: 1,
 					syncStatus: false,
 				});
-				console.log("✅ [StoreService] Default Settings Created");
 			} catch (error) {
 				console.error(
 					"❌ [StoreService] Failed to init default settings",

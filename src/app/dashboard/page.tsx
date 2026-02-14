@@ -1,6 +1,19 @@
 "use client";
 
-import { Activity, CreditCard, DollarSign, Users } from "lucide-react";
+import {
+	Activity,
+	CreditCard,
+	DollarSign,
+	type LucideIcon,
+	Users,
+} from "lucide-react";
+
+interface StatsCardProps {
+	title: string;
+	value: string | number;
+	desc: string;
+	icon: LucideIcon;
+}
 
 export default function DashboardPage() {
 	return (
@@ -72,7 +85,7 @@ export default function DashboardPage() {
 }
 
 // Sub-component untuk Card (supaya rapi)
-function StatsCard({ title, value, desc, icon: Icon }: any) {
+function StatsCard({ title, value, desc, icon: Icon }: StatsCardProps) {
 	return (
 		<div className="rounded-xl border bg-card text-card-foreground shadow-sm">
 			<div className="p-6 flex flex-row items-center justify-between space-y-0 pb-2">

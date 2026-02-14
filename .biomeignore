@@ -1,9 +1,11 @@
 # Dependency & Build Artifacts
 node_modules
 .next
+out
 dist
 build
 src-tauri/target
+**/.DS_Store
 
 # CSS Files (Handled by Tailwind v4 Compiler)
 src/app/globals.css
