@@ -5,7 +5,7 @@ export default {
 	out: "./src/db/migrations",
 	dialect: "turso",
 	dbCredentials: {
-		url: process.env.DATABASE_TURSO_DATABASE_URL!,
-		authToken: process.env.DATABASE_TURSO_AUTH_TOKEN!,
+		url: process.env.DATABASE_TURSO_DATABASE_URL ?? "",
+		authToken: process.env.DATABASE_TURSO_AUTH_TOKEN ?? "",
 	},
 } satisfies Config;

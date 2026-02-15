@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { inventoryLogs, products } from "@/db/schema";
 import { getDb } from "@/lib/db";
@@ -19,7 +19,11 @@ export const ProductService = {
 
 			// 2. Query (Hanya yang Active & Belum Deleted)
 			// Kita pakai 'and' untuk menggabungkan search + filter aktif
-			const whereCondition = and(eq(products.isActive, true), searchFilter);
+			const whereCondition = and(
+				eq(products.isActive, true),
+				isNull(products.deletedAt),
+				searchFilter,
+			);
 
 			const data = await getDb()
 				.select()
@@ -138,7 +142,8 @@ export const ProductService = {
 			await getDb()
 				.update(products)
 				.set({
-					isActive: false, // Atau isi deletedAt
+					isActive: false,
+					deletedAt: new Date(),
 
 					// 🔄 SYNC
 					updatedAt: new Date(),

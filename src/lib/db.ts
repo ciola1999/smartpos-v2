@@ -1,57 +1,102 @@
-import * as schema from "@/db/schema"; // 🔥 WAJIB IMPORT SCHEMA
+// smart-pos\src\lib\db.ts
+
 import Database from "@tauri-apps/plugin-sql";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
+import * as schema from "@/db/schema";
 
-// Definisikan Tipe DB agar TypeScript tau struktur tabel kita
 export type TauriDB = ReturnType<typeof drizzle<typeof schema>>;
 
-// Singleton Connection
 let db: TauriDB | null = null;
+
+/**
+ * Membersihkan error message dari Tauri SQL plugin.
+ * Tauri kadang mengirim error message yang dibungkus dalam tanda kutip ganda.
+ */
+function cleanErrorMessage(e: unknown): string {
+	let msg =
+		e instanceof Error
+			? e.message
+			: typeof e === "string"
+				? e
+				: JSON.stringify(e);
+
+	if (msg.startsWith('"') && msg.endsWith('"') && msg.length > 1) {
+		try {
+			msg = JSON.parse(msg);
+		} catch {
+			msg = msg.slice(1, -1);
+		}
+	}
+
+	return msg;
+}
+
+/**
+ * Konversi object row ke array of values sesuai urutan kolom dalam SQL.
+ * Ini diperlukan karena Tauri SQL plugin mengembalikan object,
+ * tapi Drizzle sqlite-proxy lebih reliable dengan array format.
+ */
+function rowObjectToArray(row: Record<string, unknown>): unknown[] {
+	return Object.values(row);
+}
 
 export const initDb = async (): Promise<TauriDB> => {
 	if (db) return db;
 
 	try {
-		// 1. Load SQLite DB (Lokasi file ada di AppData OS)
 		const sqlite = await Database.load("sqlite:smartpos.db");
 
-		// 2. Setup Drizzle Proxy
-		// 🔥 Masukkan { schema } sebagai argumen kedua!
 		db = drizzle(
 			async (sql, params, method) => {
 				try {
+					// INSERT/UPDATE/DELETE tanpa RETURNING → gunakan execute
 					if (method === "run") {
-						// Untuk Insert/Update/Delete, Drizzle butuh return object spesifik
 						const res = await sqlite.execute(sql, params);
 						return {
-							rows: [],
+							rows: [] as unknown[][],
 							rowsAffected: res.rowsAffected,
 							insertId: res.lastInsertId,
 						};
 					}
 
-					// Untuk Select
-					const rows = await sqlite.select(sql, params);
+					// Deteksi apakah ini write statement (INSERT/UPDATE/DELETE) dengan RETURNING
+					const trimmedSql = sql.trimStart().toLowerCase();
+					const isWriteWithReturning =
+						(trimmedSql.startsWith("insert") ||
+							trimmedSql.startsWith("update") ||
+							trimmedSql.startsWith("delete")) &&
+						trimmedSql.includes("returning");
 
-					// 🔍 DIAGNOSTIC LOG (TEMPORARY)
-					if (sql.includes("FROM `users`")) {
-						console.log("[DB Proxy] Raw rows for users table:", rows);
+					// Jalankan query via select()
+					// Tauri SQL plugin: select() bisa menjalankan INSERT...RETURNING di SQLite
+					let rawRows: Record<string, unknown>[];
+
+					if (isWriteWithReturning) {
+						// Untuk write+returning, gunakan select() karena execute() tidak support RETURNING
+						rawRows = await sqlite.select<Record<string, unknown>[]>(
+							sql,
+							params,
+						);
+					} else {
+						// SELECT biasa
+						rawRows = await sqlite.select<Record<string, unknown>[]>(
+							sql,
+							params,
+						);
 					}
 
-					return { rows: rows as unknown[] }; // Strict type casting
-				} catch (e: unknown) {
-					const errorMessage =
-						e instanceof Error
-							? e.message
-							: typeof e === "string"
-								? e
-								: JSON.stringify(e);
+					// Konversi semua rows ke format array-of-values
+					// Drizzle sqlite-proxy bekerja paling reliable dengan format ini
+					const mappedRows = rawRows.map(rowObjectToArray);
 
+					return { rows: mappedRows };
+				} catch (e: unknown) {
+					const errorMessage = cleanErrorMessage(e);
 					console.error("❌ SQL Error:", errorMessage);
 					throw new Error(errorMessage);
 				}
 			},
-			{ schema }, // 🔥 KRUSIAL: Agar db.query... bisa dipakai
+			{ schema },
 		);
 
 		console.log("✅ Database initialized successfully");
@@ -62,7 +107,6 @@ export const initDb = async (): Promise<TauriDB> => {
 	}
 };
 
-// Helper sync untuk mengambil instance yang SUDAH init
 export const getDb = (): TauriDB => {
 	if (!db) {
 		throw new Error(

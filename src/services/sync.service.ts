@@ -1,8 +1,8 @@
-import * as schema from "@/db/schema";
-import { initDb } from "@/lib/db";
 import { createClient } from "@libsql/client";
 import { eq, getTableColumns, sql } from "drizzle-orm";
 import type { AnySQLiteTable, SQLiteColumn } from "drizzle-orm/sqlite-core";
+import * as schema from "@/db/schema";
+import { initDb } from "@/lib/db";
 
 /**
  * 🔒 Strictly typed interface for tables that support synchronization.
@@ -77,7 +77,10 @@ export const SyncService = {
 
 				// Buat batch statements untuk Turso dengan sanitasi menyeluruh
 				const statements = localDataRows
-					.filter((row) => row && typeof row === "object" && Object.keys(row).length > 0)
+					.filter(
+						(row) =>
+							row && typeof row === "object" && Object.keys(row).length > 0,
+					)
 					.map((row) => {
 						const rowData = row as Record<string, unknown>;
 						const keys: string[] = [];
@@ -115,7 +118,10 @@ export const SyncService = {
 						}
 
 						if (!hasId) {
-							console.warn(`[Sync.Push] Skipping row in ${name} because ID is missing:`, row);
+							console.warn(
+								`[Sync.Push] Skipping row in ${name} because ID is missing:`,
+								row,
+							);
 							return null;
 						}
 
@@ -185,24 +191,27 @@ export const SyncService = {
 				const rows = result.rows;
 				if (rows.length === 0) continue;
 
-				for (const row of rows) {
-					// 🛠️ FIX: Map snake_case DB keys back to camelCase prop names
-					const mappedRow: Record<string, unknown> = {};
-					for (const [dbKey, val] of Object.entries(row)) {
-						const propName = dbToPropMapping[dbKey] || dbKey;
-						mappedRow[propName] = val;
+				// 🔥 OPTIMIZED: Gunakan transaction untuk batch insert agar tidak lag
+				await db.transaction(async (tx) => {
+					for (const row of rows) {
+						// 🛠️ FIX: Map snake_case DB keys back to camelCase prop names
+						const mappedRow: Record<string, unknown> = {};
+						for (const [dbKey, val] of Object.entries(row)) {
+							const propName = dbToPropMapping[dbKey] || dbKey;
+							mappedRow[propName] = val;
+						}
+
+						const rowWithStatus = { ...mappedRow, syncStatus: true };
+
+						await tx
+							.insert(table)
+							.values(rowWithStatus as typeof table.$inferInsert)
+							.onConflictDoUpdate({
+								target: table.id,
+								set: rowWithStatus as typeof table.$inferInsert,
+							});
 					}
-
-					const rowWithStatus = { ...mappedRow, syncStatus: true };
-
-					await db
-						.insert(table)
-						.values(rowWithStatus as typeof table.$inferInsert)
-						.onConflictDoUpdate({
-							target: table.id,
-							set: rowWithStatus as typeof table.$inferInsert,
-						});
-				}
+				});
 				totalUpdatedCount += rows.length;
 			}
 		} finally {

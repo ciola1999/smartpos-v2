@@ -1,3 +1,5 @@
+// smart-pos\src\app\dashboard\settings\page.tsx
+
 "use client";
 
 import { format } from "date-fns";
@@ -102,10 +104,11 @@ function DatabaseSettings() {
 				<div className="p-6 header border-b">
 					<div className="flex items-center gap-2">
 						<CloudCog className="h-5 w-5 text-blue-500" />
-						<h3 className="font-semibold">Cloud Connection (Supabase)</h3>
+						<h3 className="font-semibold">Cloud Connection (Turso)</h3>
 					</div>
 					<p className="text-sm text-muted-foreground mt-1">
-						Hubungkan database lokal dengan cloud untuk backup & multi-device.
+						Sinkronisasi database lokal dengan Turso untuk backup &
+						multi-device.
 					</p>
 				</div>
 				<form onSubmit={saveSettings} className="p-6 space-y-4">
@@ -128,7 +131,7 @@ function DatabaseSettings() {
 					</div>
 					<div className="space-y-2">
 						<label htmlFor="cloudKey" className="text-sm font-medium">
-							Anon Public Key
+							Auth Token
 						</label>
 						<input
 							id="cloudKey"

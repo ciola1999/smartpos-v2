@@ -1,23 +1,23 @@
 import { relations, sql } from "drizzle-orm";
 import {
-	index,
-	integer,
-	real,
-	sqliteTable,
-	text,
+    index,
+    integer,
+    real,
+    sqliteTable,
+    text,
 } from "drizzle-orm/sqlite-core";
 
 // --- 1. SHARED HELPERS (DRY Principle) ---
 
 const timestamps = {
-	createdAt: integer("created_at", { mode: "timestamp" })
+	createdAt: integer("created_at", { mode: "timestamp_ms" })
 		.default(sql`(strftime('%s', 'now') * 1000)`)
 		.notNull(),
-	updatedAt: integer("updated_at", { mode: "timestamp" })
+	updatedAt: integer("updated_at", { mode: "timestamp_ms" })
 		.default(sql`(strftime('%s', 'now') * 1000)`)
 		.$onUpdate(() => new Date())
 		.notNull(),
-	deletedAt: integer("deleted_at", { mode: "timestamp" }),
+	deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
 };
 
 const syncColumns = {

@@ -9,6 +9,7 @@ export const metadata: Metadata = {
 	description: "Point of Sale System",
 };
 
+import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Toaster } from "sonner";
 
 export default function RootLayout({
@@ -19,8 +20,10 @@ export default function RootLayout({
 	return (
 		<html lang="id" className="dark">
 			<body className={inter.className}>
-				{children}
-				<Toaster position="top-right" richColors closeButton />
+				<NuqsAdapter>
+					{children}
+					<Toaster position="top-right" richColors closeButton />
+				</NuqsAdapter>
 			</body>
 		</html>
 	);

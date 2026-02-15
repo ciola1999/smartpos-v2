@@ -1,3 +1,5 @@
+// smart-pos\src\lib\validations\schema.ts
+
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import * as schema from "@/db/schema";
