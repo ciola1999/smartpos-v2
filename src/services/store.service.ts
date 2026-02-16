@@ -6,91 +6,86 @@ import { initDb } from "@/lib/db";
 const STORE_ID = "STORE_MAIN";
 
 type UpdateStoreInput = Partial<
-	Pick<
-		typeof schema.storeSettings.$inferSelect,
-		| "name"
-		| "description"
-		| "address"
-		| "phone"
-		| "email"
-		| "website"
-		| "logoUrl"
-		| "currency"
-		| "receiptFooter"
-		| "cloudUrl"
-		| "cloudKey"
-		| "lastSyncAt"
-	>
+  Pick<
+    typeof schema.storeSettings.$inferSelect,
+    | "name"
+    | "description"
+    | "address"
+    | "phone"
+    | "email"
+    | "website"
+    | "logoUrl"
+    | "currency"
+    | "receiptFooter"
+    | "cloudUrl"
+    | "cloudKey"
+    | "lastSyncAt"
+  >
 >;
 
 export const StoreService = {
-	getSettings: async () => {
-		try {
-			const db = await initDb();
-			const result = await db
-				.select()
-				.from(schema.storeSettings)
-				.where(eq(schema.storeSettings.id, STORE_ID))
-				.limit(1);
+  getSettings: async () => {
+    try {
+      const db = await initDb();
+      const result = await db
+        .select()
+        .from(schema.storeSettings)
+        .where(eq(schema.storeSettings.id, STORE_ID))
+        .limit(1);
 
-			return result[0];
-		} catch (error) {
-			console.error("[StoreService.getSettings]", error);
-			return undefined;
-		}
-	},
+      return result[0];
+    } catch (_error) {
+      return undefined;
+    }
+  },
 
-	updateSettings: async (input: UpdateStoreInput) => {
-		const db = await initDb();
+  updateSettings: async (input: UpdateStoreInput) => {
+    const db = await initDb();
 
-		// Pastikan setting sudah ada sebelum update
-		const existing = await StoreService.getSettings();
-		if (!existing) {
-			await StoreService.initDefault();
-		}
+    // Pastikan setting sudah ada sebelum update
+    const existing = await StoreService.getSettings();
+    if (!existing) {
+      await StoreService.initDefault();
+    }
 
-		try {
-			await db
-				.update(schema.storeSettings)
-				.set({
-					...input,
-					updatedAt: new Date(),
-					version: sql`${schema.storeSettings.version} + 1`,
-					syncStatus: false,
-				})
-				.where(eq(schema.storeSettings.id, STORE_ID));
+    try {
+      await db
+        .update(schema.storeSettings)
+        .set({
+          ...input,
+          updatedAt: new Date(),
+          version: sql`${schema.storeSettings.version} + 1`,
+          syncStatus: false,
+        })
+        .where(eq(schema.storeSettings.id, STORE_ID));
 
-			return { success: true };
-		} catch (error) {
-			console.error("[StoreService.updateSettings]", error);
-			return { success: false, error: "Gagal update pengaturan toko." };
-		}
-	},
+      return { success: true };
+    } catch (_error) {
+      return { success: false, error: "Gagal update pengaturan toko." };
+    }
+  },
 
-	initDefault: async () => {
-		const db = await initDb();
-		const existing = await StoreService.getSettings();
+  initDefault: async () => {
+    const db = await initDb();
+    const existing = await StoreService.getSettings();
 
-		if (!existing) {
-			try {
-				await db.insert(schema.storeSettings).values({
-					id: STORE_ID, // ✅ String
-					name: "My Smart POS",
-					description: "Toko default",
-					address: "Alamat belum diatur",
-					currency: "IDR",
-					receiptFooter: "Terima kasih atas kunjungan Anda!",
-					createdAt: new Date(),
-					updatedAt: new Date(),
-					version: 1,
-					syncStatus: false,
-				});
-			} catch (error) {
-				console.error(
-					"❌ [StoreService] Failed to init default settings",
-					error,
-				);
-			}
-		}
-	},
+    if (!existing) {
+      try {
+        await db.insert(schema.storeSettings).values({
+          id: STORE_ID,
+          name: "My Smart POS",
+          description: "Toko default",
+          address: "Alamat belum diatur",
+          currency: "IDR",
+          receiptFooter: "Terima kasih atas kunjungan Anda!",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          version: 1,
+          syncStatus: false,
+        });
+      } catch (_error) {
+        // Init default failed, handled at consumer level
+      }
+    }
+  },
 };

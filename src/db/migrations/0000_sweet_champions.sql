@@ -1,5 +1,3 @@
-// smart-pos\src\db\migrations\0000_fantastic_clea.sql
-
 CREATE TABLE `categories` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
@@ -34,6 +32,8 @@ CREATE TABLE `ingredients` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`unit` text DEFAULT 'gr',
+	`stock` real DEFAULT 0 NOT NULL,
+	`min_stock` real DEFAULT 0 NOT NULL,
 	`cost_per_unit` text DEFAULT '0',
 	`calories` real DEFAULT 0,
 	`protein` real DEFAULT 0,
@@ -54,9 +54,10 @@ CREATE TABLE `ingredients` (
 CREATE INDEX `ingredient_name_idx` ON `ingredients` (`name`);--> statement-breakpoint
 CREATE TABLE `inventory_logs` (
 	`id` text PRIMARY KEY NOT NULL,
-	`product_id` text NOT NULL,
-	`change_amount` integer NOT NULL,
-	`final_stock` integer NOT NULL,
+	`product_id` text,
+	`ingredient_id` text,
+	`change_amount` real NOT NULL,
+	`final_stock` real NOT NULL,
 	`type` text NOT NULL,
 	`note` text,
 	`reference_id` text,
@@ -67,10 +68,12 @@ CREATE TABLE `inventory_logs` (
 	`version` integer DEFAULT 1 NOT NULL,
 	`sync_status` integer DEFAULT false NOT NULL,
 	FOREIGN KEY (`product_id`) REFERENCES `products`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`ingredient_id`) REFERENCES `ingredients`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE INDEX `inv_log_product_idx` ON `inventory_logs` (`product_id`);--> statement-breakpoint
+CREATE INDEX `inv_log_ingredient_idx` ON `inventory_logs` (`ingredient_id`);--> statement-breakpoint
 CREATE INDEX `inv_log_date_idx` ON `inventory_logs` (`created_at`);--> statement-breakpoint
 CREATE TABLE `members` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -173,8 +176,8 @@ CREATE TABLE `products` (
 	`sku` text,
 	`price` text DEFAULT '0' NOT NULL,
 	`cost_price` text DEFAULT '0' NOT NULL,
-	`stock` integer DEFAULT 0 NOT NULL,
-	`min_stock` integer DEFAULT 5 NOT NULL,
+	`stock` real DEFAULT 0 NOT NULL,
+	`min_stock` real DEFAULT 0 NOT NULL,
 	`unit` text DEFAULT 'pcs',
 	`is_active` integer DEFAULT true NOT NULL,
 	`has_recipe` integer DEFAULT false NOT NULL,

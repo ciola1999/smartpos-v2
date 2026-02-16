@@ -12,123 +12,99 @@ const STORE_MAIN_ID = "STORE_MAIN";
 /**
  * 🛠️ CORE MIGRATION RUNNER
  */
+async function execMigrationStatement(db: DrizzleDB, query: string) {
+  const cleanQuery = query.trim();
+  if (!cleanQuery) return;
+
+  try {
+    await db.run(sql.raw(cleanQuery));
+  } catch (error: unknown) {
+    const errMessage = error instanceof Error ? error.message : String(error);
+
+    if (
+      errMessage.includes("already exists") ||
+      errMessage.includes("duplicate column")
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
 async function runRawMigration(db: DrizzleDB) {
-	console.log("🚀 Starting Fresh Migration...");
-
-	const queries = INITIAL_MIGRATION_SQL.split("--> statement-breakpoint");
-
-	for (const query of queries) {
-		const cleanQuery = query.trim();
-		if (!cleanQuery) continue;
-
-		try {
-			await db.run(sql.raw(cleanQuery));
-		} catch (error: unknown) {
-			const errMessage =
-				error instanceof Error
-					? error.message
-					: typeof error === "string"
-						? error
-						: JSON.stringify(error);
-
-			if (
-				errMessage.includes("already exists") ||
-				errMessage.includes("duplicate column")
-			) {
-				continue;
-			}
-
-			console.error("❌ Migration Error on:", cleanQuery);
-			throw error;
-		}
-	}
-	console.log("✅ Migration Logic Finished");
+  const queries = INITIAL_MIGRATION_SQL.split("--> statement-breakpoint");
+  for (const query of queries) {
+    await execMigrationStatement(db, query);
+  }
 }
 
 /**
  * 🌱 SEEDER RUNNER (BULLETPROOF VERSION)
- * Menggunakan .onConflictDoNothing() agar tidak crash saat run berulang
  */
 async function runSeeder(db: DrizzleDB) {
-	const hashedPassword = await bcrypt.hash("admin123", 10);
+  const hashedPassword = await bcrypt.hash("admin123", 10);
 
-	// --- 1. SEED USER ADMIN ---
-	// Insert, jika username 'admin' sudah ada, SKIP otomatis (jangan error)
-	await db
-		.insert(users)
-		.values({
-			id: uuidv7(),
-			name: "Super Admin",
-			username: "admin",
-			password: hashedPassword,
-			role: "admin",
-			isActive: true,
-			version: 1,
-			syncStatus: false,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		})
-		.onConflictDoNothing({ target: users.username }); // 👈 KUNCI PERBAIKAN: Target kolom unique
+  // --- 1. SEED USER ADMIN ---
+  await db
+    .insert(users)
+    .values({
+      id: uuidv7(),
+      name: "Super Admin",
+      username: "admin",
+      password: hashedPassword,
+      role: "admin",
+      isActive: true,
+      version: 1,
+      syncStatus: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .onConflictDoNothing({ target: users.username });
 
-	console.log("✅ Seeder: Admin check complete.");
-
-	// --- 2. SEED STORE SETTINGS ---
-	// Insert, jika ID sudah ada, SKIP otomatis
-	await db
-		.insert(storeSettings)
-		.values({
-			id: STORE_MAIN_ID,
-			name: "My Smart POS",
-			currency: "IDR",
-			address: "Indonesia",
-			version: 1,
-			syncStatus: false,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		})
-		.onConflictDoNothing({ target: storeSettings.id }); // 👈 Target Primary Key
-
-	console.log("✅ Seeder: Store settings check complete.");
+  // --- 2. SEED STORE SETTINGS ---
+  await db
+    .insert(storeSettings)
+    .values({
+      id: STORE_MAIN_ID,
+      name: "My Smart POS",
+      currency: "IDR",
+      address: "Indonesia",
+      version: 1,
+      syncStatus: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .onConflictDoNothing({ target: storeSettings.id });
 }
 
 /**
  * 🚀 MAIN SETUP FUNCTION
  */
 export const runSystemSetup = async () => {
-	const db = getDb();
-	console.log("🔄 Starting System Setup...");
+  const db = getDb();
 
-	try {
-		// 1️⃣ GUARD CLAUSE: Cek Tabel via Metadata SQLite
-		const checkTable = await db.run(
-			sql`SELECT name FROM sqlite_master WHERE type='table' AND name='users' LIMIT 1;`,
-		);
+  try {
+    // 1️⃣ GUARD CLAUSE: Cek Tabel via Metadata SQLite
+    const checkTable = await db.run(
+      sql`SELECT name FROM sqlite_master WHERE type='table' AND name='users' LIMIT 1;`,
+    );
 
-		const rows = (checkTable as { rows?: unknown[] }).rows;
-		const isInitialized = Array.isArray(rows) && rows.length > 0;
+    const rows = (checkTable as { rows?: unknown[] }).rows;
+    const isInitialized = Array.isArray(rows) && rows.length > 0;
 
-		if (isInitialized) {
-			console.log("⏩ Database tables detected. Skipping migration.");
-		} else {
-			console.log("⚡ Fresh install detected. Running Initial Migration...");
-			await runRawMigration(db);
-		}
+    if (!isInitialized) {
+      await runRawMigration(db);
+    }
 
-		// 2️⃣ Seeder (Aman dijalankan berkali-kali)
-		await runSeeder(db);
+    // 2️⃣ Seeder (Aman dijalankan berkali-kali)
+    await runSeeder(db);
 
-		console.log("✅ System Setup Complete.");
-		return { success: true, message: "System Ready" };
-	} catch (error: unknown) {
-		console.error("❌ Setup Critical Error:", error);
-
-		// Jangan throw error fatal hanya karena duplikat (safety net terakhir)
-		const msg = error instanceof Error ? error.message : String(error);
-		if (msg.includes("UNIQUE constraint failed")) {
-			console.warn("⚠️ Ignored Unique Constraint Error during setup (Safe).");
-			return { success: true, message: "System Ready (Recovered)" };
-		}
-
-		throw new Error(msg);
-	}
+    return { success: true, message: "System Ready" };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes("UNIQUE constraint failed")) {
+      return { success: true, message: "System Ready (Recovered)" };
+    }
+    throw new Error(msg);
+  }
 };
