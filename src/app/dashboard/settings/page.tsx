@@ -305,6 +305,18 @@ function StoreSettings() {
               placeholder="08123456789"
             />
           </div>
+          <div className="space-y-2 md:col-span-2">
+            <label htmlFor="description" className="text-sm font-medium">
+              Deskripsi Singkat
+            </label>
+            <input
+              id="description"
+              {...form.register("description")}
+              type="text"
+              className="w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="Slogan atau deskripsi toko..."
+            />
+          </div>
           <div className="space-y-2">
             <label htmlFor="email" className="text-sm font-medium">
               Email Bisnis
@@ -324,6 +336,30 @@ function StoreSettings() {
                 {form.formState.errors.email.message}
               </p>
             )}
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="website" className="text-sm font-medium">
+              Website
+            </label>
+            <input
+              id="website"
+              {...form.register("website")}
+              type="text"
+              className="w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="https://tokoanda.com"
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="logoUrl" className="text-sm font-medium">
+              URL Logo Toko
+            </label>
+            <input
+              id="logoUrl"
+              {...form.register("logoUrl")}
+              type="text"
+              className="w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="https://.../logo.png"
+            />
           </div>
           <div className="space-y-2">
             <label htmlFor="currency" className="text-sm font-medium">
@@ -346,8 +382,20 @@ function StoreSettings() {
               id="address"
               {...form.register("address")}
               className="w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              rows={3}
+              rows={2}
               placeholder="Alamat toko..."
+            />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <label htmlFor="receiptFooter" className="text-sm font-medium">
+              Footer Struk Penjualan
+            </label>
+            <textarea
+              id="receiptFooter"
+              {...form.register("receiptFooter")}
+              className="w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              rows={2}
+              placeholder="Catatan di bawah struk..."
             />
           </div>
         </div>

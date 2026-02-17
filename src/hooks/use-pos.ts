@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { sql } from "drizzle-orm";
-import { useMemo, useState } from "react";
+import { and, eq, isNull } from "drizzle-orm";
+import { useState } from "react";
 import * as schema from "@/db/schema";
 import { getDb } from "@/lib/db";
 
@@ -18,7 +18,7 @@ export function usePOS() {
   const queryClient = useQueryClient();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [globalDiscount, setGlobalDiscount] = useState<number>(0);
-  const [selectedTaxRate, setSelectedTaxRate] = useState<number>(11); // PPN 11% default (sync with OrderService)
+  const [selectedTaxRate, setSelectedTaxRate] = useState<number>(11); // PPN 11% default
   const [transactionStatus, setTransactionStatus] =
     useState<POSTransactionStatus>("idle");
 
@@ -31,7 +31,10 @@ export function usePOS() {
         .select()
         .from(schema.products)
         .where(
-          sql`${schema.products.isActive} = 1 AND ${schema.products.deletedAt} IS NULL`,
+          and(
+            eq(schema.products.isActive, true),
+            isNull(schema.products.deletedAt),
+          ),
         );
     },
   });
@@ -45,27 +48,17 @@ export function usePOS() {
     },
   });
 
-  // 2. CALCULATIONS (Memoized)
-  const { subtotal, taxAmount, discountAmount, grandTotal, totalItems } =
-    useMemo(() => {
-      const sub = cart.reduce((acc, item) => {
-        const price = Number(item.product.price);
-        return acc + price * item.quantity;
-      }, 0);
+  // 2. CALCULATIONS (React Compiler handles memoization automatically)
+  const subtotal = cart.reduce((acc, item) => {
+    const price = Number(item.product.price);
+    return acc + price * item.quantity;
+  }, 0);
 
-      const disc = (sub * globalDiscount) / 100;
-      const taxableAmount = sub - disc;
-      const tax = (taxableAmount * selectedTaxRate) / 100;
-      const total = taxableAmount + tax;
-
-      return {
-        subtotal: sub,
-        discountAmount: disc,
-        taxAmount: tax,
-        grandTotal: Math.max(0, Math.round(total)),
-        totalItems: cart.reduce((acc, item) => acc + item.quantity, 0),
-      };
-    }, [cart, globalDiscount, selectedTaxRate]);
+  const discountAmount = (subtotal * globalDiscount) / 100;
+  const taxableAmount = subtotal - discountAmount;
+  const taxAmount = (taxableAmount * selectedTaxRate) / 100;
+  const grandTotal = Math.max(0, Math.round(taxableAmount + taxAmount));
+  const totalItems = cart.reduce((acc, item) => acc + item.quantity, 0);
 
   // 3. ACTIONS
   const addToCart = (product: schema.Product) => {

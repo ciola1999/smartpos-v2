@@ -16,6 +16,10 @@ export const storeProfileSchema = z.object({
   email: z.union([z.literal(""), z.string().email("Format email salah")]),
 
   currency: z.string(),
+  description: z.string().optional(),
+  website: z.string().optional(),
+  logoUrl: z.string().optional(),
+  receiptFooter: z.string().optional(),
 });
 
 export type StoreProfileValues = z.infer<typeof storeProfileSchema>;

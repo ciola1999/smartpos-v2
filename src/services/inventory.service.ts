@@ -2,7 +2,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 import * as schema from "@/db/schema";
-import { getDb } from "@/lib/db";
+import { getDb, runTransactionWithRetry } from "@/lib/db";
 
 // --- VALIDATION SCHEMAS ---
 // Kita define di sini atau di lib/validators.ts
@@ -25,8 +25,9 @@ export const InventoryService = {
   async adjustStock(input: AdjustStockInput, userId: string) {
     // 1. Validasi Input
     const validated = adjustStockSchema.parse(input);
+    const db = getDb();
 
-    return await getDb().transaction(async (tx) => {
+    return await runTransactionWithRetry(db, async (tx) => {
       // 2. Ambil Data Produk Terkini (Locking row idealnya, tapi SQLite single-writer safe)
       const [product] = await tx
         .select()
@@ -64,13 +65,14 @@ export const InventoryService = {
       }
 
       const finalStock = product.stock + changeAmount;
+      const now = new Date();
 
       // 4. Update Table Products
       await tx
         .update(schema.products)
         .set({
           stock: finalStock,
-          updatedAt: new Date(),
+          updatedAt: now,
           version: sql`${schema.products.version} + 1`, // 🔄 SYNC VERSIONING
           syncStatus: false, // 🔄 SYNC DIRTY
         })
@@ -87,8 +89,8 @@ export const InventoryService = {
         finalStock: finalStock,
         note: validated.note,
 
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: now,
+        updatedAt: now,
         version: 1, // 🔄 SYNC
         syncStatus: false, // 🔄 SYNC
       });

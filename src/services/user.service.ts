@@ -88,12 +88,14 @@ export const userService = {
     }
 
     try {
+      const now = new Date();
       return await db
         .update(users)
         .set({
           ...data,
-          updatedAt: new Date(),
-          version: sql`version + 1`,
+          updatedAt: now,
+          version: sql`${users.version} + 1`,
+          syncStatus: false,
         })
         .where(eq(users.id, id))
         .returning();
@@ -108,9 +110,15 @@ export const userService = {
   // Soft delete
   deleteStaff: async (id: string) => {
     const db = getDb();
+    const now = new Date();
     return await db
       .update(users)
-      .set({ deletedAt: new Date() })
+      .set({
+        deletedAt: now,
+        updatedAt: now,
+        version: sql`${users.version} + 1`,
+        syncStatus: false,
+      })
       .where(eq(users.id, id));
   },
 

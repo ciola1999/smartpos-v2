@@ -299,12 +299,16 @@ function StaffForm({
           username: initialData.username,
           password: initialData.password,
           role: initialData.role as "admin" | "cashier",
+          email: initialData.email ?? "",
+          avatarUrl: initialData.avatarUrl ?? "",
         }
       : {
           name: "",
           username: "",
           password: "",
           role: "cashier",
+          email: "",
+          avatarUrl: "",
         },
   });
 
@@ -404,6 +408,41 @@ function StaffForm({
             {form.formState.errors.password && (
               <p className="text-xs text-red-500">
                 {form.formState.errors.password.message}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="email" className="text-sm font-medium">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              {...form.register("email")}
+              className="w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="budi@example.com"
+            />
+            {form.formState.errors.email && (
+              <p className="text-xs text-red-500">
+                {form.formState.errors.email.message}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2 md:col-span-2">
+            <label htmlFor="avatarUrl" className="text-sm font-medium">
+              URL Foto / Avatar
+            </label>
+            <input
+              id="avatarUrl"
+              {...form.register("avatarUrl")}
+              className="w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="https://..."
+            />
+            {form.formState.errors.avatarUrl && (
+              <p className="text-xs text-red-500">
+                {form.formState.errors.avatarUrl.message}
               </p>
             )}
           </div>

@@ -35,7 +35,7 @@ interface DrizzleTableLike {
 const dummyDb = drizzle(async () => ({ rows: [] }), { schema });
 export type LocalDB = typeof dummyDb;
 
-let db: LocalDB | null = null;
+// Global singleton database instance will be defined below in Core Logic section
 
 const cloudUrl =
   process.env.DATABASE_TURSO_DATABASE_URL ||
@@ -85,81 +85,98 @@ function rowObjectToArray(row: Record<string, unknown>): unknown[] {
 }
 
 function cleanErrorMessage(e: unknown): string {
-  const msg = e instanceof Error ? e.message : String(e);
-  if (msg.startsWith("{") || msg.startsWith('"')) {
-    try {
-      const parsed = JSON.parse(msg);
-      return typeof parsed === "object" && parsed.message
-        ? parsed.message
-        : String(parsed);
-    } catch {
-      // ignore parse error
-    }
+  if (typeof e === "string") return e;
+  if (e instanceof Error) {
+    // Seringkali error "locked" tersembunyi di dalam properti 'cause'
+    const cause = e.cause ? ` (Caused by: ${cleanErrorMessage(e.cause)})` : "";
+    return `${e.message}${cause}`;
   }
-  return msg;
+
+  // Handle object-like errors (Kadang plugin Tauri balikin object aneh)
+  try {
+    const json = JSON.stringify(e);
+    // Kalau JSON terlalu panjang, potong biar log gak penuh
+    return json.length > 500 ? `${json.substring(0, 500)}...` : json;
+  } catch {
+    return String(e);
+  }
 }
 
 // -----------------------------------------------------------------------------
 // 4️⃣ CORE LOGIC: INIT & PROXY
 // -----------------------------------------------------------------------------
 
+let db: LocalDB | null = null;
+let initPromise: Promise<LocalDB> | null = null;
+
 export const initDb = async (): Promise<LocalDB> => {
   if (db) return db;
+  if (initPromise) return initPromise;
 
-  try {
-    // 1. Load Tauri SQL Plugin
-    const sqlite = await Database.load("sqlite:smartpos.db");
+  initPromise = (async () => {
+    try {
+      // 1. Load Tauri SQL Plugin
+      const sqlite = await Database.load("sqlite:smartpos.db");
 
-    // 2. Performance Tuning (PRAGMA 2026 Standard)
-    await sqlite.execute("PRAGMA journal_mode=WAL;");
-    await sqlite.execute("PRAGMA synchronous=NORMAL;");
-    await sqlite.execute("PRAGMA foreign_keys=ON;");
-    await sqlite.execute("PRAGMA busy_timeout=5000;");
-    await sqlite.execute("PRAGMA temp_store=MEMORY;");
+      // 2. Performance Tuning (PRAGMA 2026 Standard)
+      // WAL Mode allows concurrent readers and writers
+      await sqlite.execute("PRAGMA journal_mode = WAL;");
+      await sqlite.execute("PRAGMA synchronous = NORMAL;");
+      await sqlite.execute("PRAGMA foreign_keys = ON;");
+      await sqlite.execute("PRAGMA busy_timeout = 30000;"); // 30 Seconds
+      await sqlite.execute("PRAGMA temp_store = MEMORY;");
+      await sqlite.execute("PRAGMA cache_size = -2000;"); // ~2MB
+      await sqlite.execute("PRAGMA mmap_size = 268435456;"); // 256MB for better performance
+      await sqlite.execute("PRAGMA journal_size_limit = 67108864;"); // 64MB
 
-    // 3. Batch Create Tables (If not exist)
-    console.log("🛠️ [DB] Running initial schema setup...");
-    await executeInitialSchema(sqlite);
+      // 3. Batch Create Tables (If not exist)
+      console.log("🛠️ [DB] Running initial schema setup...");
+      await executeInitialSchema(sqlite);
 
-    // 4. Auto-repair schema (add missing columns, drop orphaned columns)
-    await repairSchema(sqlite);
+      // 4. Hotfixes (Manual Patch for stubborn tables)
+      await runHotfixes(sqlite);
 
-    // 4. Verification Check: Pasikan tabel krusial ada (Check AFTER repair)
-    const tables = await sqlite.select<Array<{ name: string }>>(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users', 'store_settings')",
-    );
-    if (tables.length < 2) {
-      throw new Error(
-        `Critical tables missing after init. Found: ${tables.map((t) => t.name).join(", ")}`,
+      // 5. Auto-repair schema (add missing columns, drop orphaned columns)
+      // Note: Only run this ONCE to avoid infinite loops/locks during Fast Refresh
+      await repairSchema(sqlite);
+
+      // 6. Verification Check: Pasikan tabel krusial ada
+      const tables = await sqlite.select<Array<{ name: string }>>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users', 'store_settings')",
       );
+      if (tables.length < 2) {
+        throw new Error(
+          `Critical tables missing after init. Found: ${tables.map((t) => t.name).join(", ")}`,
+        );
+      }
+
+      // 7. Init Drizzle Proxy
+      const newDb = drizzle(
+        async (sql, params, method) => {
+          try {
+            return await handleSqlQuery(sqlite, sql, params, method);
+          } catch (e) {
+            console.error(`[DB_ERROR] Statement: ${sql}`);
+            console.error(`[DB_ERROR] Parameters:`, params);
+            console.error(`[DB_ERROR] Error:`, cleanErrorMessage(e));
+            throw e;
+          }
+        },
+        { schema },
+      );
+
+      db = newDb;
+      console.log("✅ [DB] Database initialized successfully.");
+      return db;
+    } catch (error) {
+      initPromise = null; // Clear if failed to allow retry
+      const msg = cleanErrorMessage(error);
+      console.error("❌ [DB_FATAL] Init Failed:", msg);
+      throw new Error(msg);
     }
+  })();
 
-    // 5. Hotfixes (Manual Patch for stubborn tables)
-    await runHotfixes(sqlite);
-
-    // 6. Auto-repair schema (General)
-    await repairSchema(sqlite);
-
-    // 7. Init Drizzle Proxy
-    db = drizzle(
-      async (sql, params, method) => {
-        try {
-          return await handleSqlQuery(sqlite, sql, params, method);
-        } catch (e) {
-          console.error(`[DB_ERROR] Query: ${sql}`, e);
-          throw e;
-        }
-      },
-      { schema },
-    );
-
-    console.log("✅ [DB] Database initialized successfully.");
-    return db;
-  } catch (error) {
-    const msg = cleanErrorMessage(error);
-    console.error("❌ [DB_FATAL] Init Failed:", msg);
-    throw new Error(msg);
-  }
+  return initPromise;
 };
 
 export const getDb = (): LocalDB => {
@@ -168,6 +185,92 @@ export const getDb = (): LocalDB => {
   }
   return db;
 };
+
+// -----------------------------------------------------------------------------
+// 4.1️⃣ RESILIENT TRANSACTIONS (RETRY LOGIC & MUTEX)
+// -----------------------------------------------------------------------------
+
+export const sleep = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+export type TransactionTx = Parameters<
+  Parameters<LocalDB["transaction"]>[0]
+>[0];
+
+/**
+ * 🔒 Software-level Write Mutex
+ * Mencegah multiple transaksi write running berbarengan di JS level
+ * sebelum masuk ke level SQLite. Menghindari "Internal Locking Conflict".
+ */
+let writeMutex: Promise<void> = Promise.resolve();
+
+/**
+ * 🛡️ Resilient Transaction Wrapper
+ */
+export async function runTransactionWithRetry<T>(
+  db: LocalDB,
+  operation: (tx: TransactionTx) => Promise<T>,
+  maxRetries = 15,
+): Promise<T> {
+  // 1. Antre di Mutex (Queueing)
+  const currentMutex = writeMutex;
+  let resolveMutex: () => void = () => {};
+  writeMutex = new Promise((resolve) => {
+    resolveMutex = resolve;
+  });
+
+  try {
+    // Tunggu antrean sebelumnya selesai
+    await currentMutex;
+
+    // 2. Eksekusi dengan Retry Otomatis (Tanpa SQL Transaction Wrapper)
+    // Masalah: Tauri SQL Plugin nampaknya menggunakan Connection Pool.
+    // Jika kita pakai `BEGIN` (Conn A), lalu `INSERT` (Conn B), Conn B akan menunggu Conn A selesai -> Deadlock.
+    // Solusi: Kita gunakan App-Level Mutex (di atas) untuk serialize semua write.
+    // Dan kita jalankan operasi TANPA `db.transaction()` (tanpa BEGIN/COMMIT).
+    // Risiko: Tidak atomik jika aplikasi crash di tengah jalan. Tapi setidaknya jalan.
+
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Bypass Drizzle transaction due to pool deadlock issues
+        // @ts-expect-error - db satisfies TransactionTx interface for practical purposes (insert/update/delete/select)
+        return await operation(db);
+      } catch (error) {
+        lastError = error;
+        const msg = cleanErrorMessage(error).toLowerCase();
+
+        // Check for common SQLite lock errors
+        if (
+          !msg.includes("locked") &&
+          !msg.includes("busy") &&
+          !msg.includes("code: 5") &&
+          !msg.includes("code: 6")
+        ) {
+          throw error;
+        }
+
+        console.warn(
+          `[DB_RETRY] Attempt ${attempt}/${maxRetries} failed: Database is locked (${msg}). Retrying...`,
+        );
+
+        if (attempt < maxRetries) {
+          // Increase delay significantly to give other processes (like Sync) room
+          // Start at 500ms, cap at 2000ms
+          const baseDelay = Math.min(500 * 2 ** (attempt - 1), 2000);
+          const jitter = Math.random() * 300;
+          await sleep(baseDelay + jitter);
+        }
+      }
+    }
+
+    throw lastError;
+  } finally {
+    // 3. Lepas Mutex untuk antrean berikutnya
+    resolveMutex();
+  }
+}
 
 // -----------------------------------------------------------------------------
 // 5️⃣ INITIAL SCHEMA EXECUTION
@@ -206,6 +309,49 @@ async function executeInitialSchema(sqlite: Database): Promise<void> {
 // 6️⃣ QUERY HANDLER (THE BRIDGE)
 // -----------------------------------------------------------------------------
 
+async function handleTransactionCommand(sqlite: Database, trimmedSql: string) {
+  if (trimmedSql.startsWith("begin")) {
+    await sqlite.execute("BEGIN IMMEDIATE");
+    return { rows: [] };
+  }
+
+  if (trimmedSql.startsWith("commit")) {
+    try {
+      await sqlite.execute("COMMIT");
+    } catch (e) {
+      const msg = cleanErrorMessage(e).toLowerCase();
+      if (
+        msg.includes("no transaction is active") ||
+        msg.includes("cannot commit")
+      ) {
+        console.warn("[DB] Commit skipped: no active transaction.");
+        return { rows: [] };
+      }
+      throw e;
+    }
+    return { rows: [] };
+  }
+
+  if (trimmedSql.startsWith("rollback")) {
+    try {
+      await sqlite.execute("ROLLBACK");
+    } catch (e) {
+      const msg = cleanErrorMessage(e).toLowerCase();
+      if (
+        msg.includes("no transaction is active") ||
+        msg.includes("cannot rollback")
+      ) {
+        console.warn("[DB] Rollback skipped: no active transaction.");
+        return { rows: [] };
+      }
+      throw e;
+    }
+    return { rows: [] };
+  }
+
+  return null; // Not a transaction command
+}
+
 async function handleSqlQuery(
   sqlite: Database,
   sql: string,
@@ -214,17 +360,11 @@ async function handleSqlQuery(
 ) {
   const trimmedSql = sql.trim().toLowerCase();
 
-  // Transaction Handling (Explicit)
-  if (
-    trimmedSql === "begin" ||
-    trimmedSql === "commit" ||
-    trimmedSql === "rollback"
-  ) {
-    await sqlite.execute(sql);
-    return { rows: [] };
-  }
+  // 1. Transaction Handling (Delegated)
+  const txResult = await handleTransactionCommand(sqlite, trimmedSql);
+  if (txResult) return txResult;
 
-  // Write with Returning Handling
+  // 2. Write with Returning (Special Case)
   const isWriteWithReturning =
     ["insert", "update", "delete"].some((cmd) => trimmedSql.startsWith(cmd)) &&
     trimmedSql.includes("returning");

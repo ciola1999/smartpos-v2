@@ -1,7 +1,7 @@
-import { and, desc, eq, isNull, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import * as schema from "@/db/schema";
-import { getDb } from "@/lib/db";
+import { getDb, runTransactionWithRetry } from "@/lib/db";
 import {
   ProductFormSchema,
   type ProductFormValues,
@@ -40,29 +40,50 @@ export const ProductService = {
     }
   },
 
+  // --- CATEGORIES ---
+  getCategories: async () => {
+    try {
+      const db = await getDb();
+      const data = await db
+        .select()
+        .from(schema.categories)
+        .where(isNull(schema.categories.deletedAt))
+        .orderBy(asc(schema.categories.name));
+
+      return { success: true, data };
+    } catch (error) {
+      console.error("ProductService.getCategories Error:", error);
+      return { success: false, error: "Gagal mengambil data kategori." };
+    }
+  },
+
   // --- CREATE ---
-  create: async (rawInput: ProductFormValues, userId: string = "system") => {
+  create: async (rawInput: ProductFormValues, userId: string | null = null) => {
     try {
       const validated = ProductFormSchema.parse(rawInput);
       const newId = uuidv7();
       const now = new Date();
       const db = await getDb();
 
-      await db.transaction(async (tx) => {
+      await runTransactionWithRetry(db, async (tx) => {
         await tx.insert(schema.products).values({
           id: newId,
           name: validated.name,
-          categoryId: validated.categoryId ?? null,
-          sku: validated.sku || `SKU-${Date.now()}`,
-          // barcode: validated.barcode || null,
+          categoryId: validated.categoryId || null, // FK must be null if empty
+          sku: validated.sku || `SKU-${Date.now()}`, // Unique
+          barcode: validated.barcode || null, // Unique (empty string would conflict)
+          imageUrl: validated.imageUrl || "", // Text can be empty string
+          description: validated.description || "", // Text can be empty string
 
           price: validated.price.toString(),
           costPrice: validated.costPrice.toString(),
 
           stock: validated.stock,
-          // unit: validated.unit || "pcs",
+          unit: validated.unit,
+          minStock: validated.minStock,
 
           isActive: true,
+          hasRecipe: false, // Explicit Default
           createdAt: now,
           updatedAt: now,
           version: 1,
@@ -108,22 +129,33 @@ export const ProductService = {
         name: rawInput.name,
         categoryId: rawInput.categoryId ?? null,
         sku: rawInput.sku,
-        // barcode: rawInput.barcode,
+        barcode: rawInput.barcode,
+        imageUrl: rawInput.imageUrl,
+        unit: rawInput.unit,
+        minStock: rawInput.minStock,
         price:
           rawInput.price !== undefined ? rawInput.price.toString() : undefined,
         costPrice:
           rawInput.costPrice !== undefined
             ? rawInput.costPrice.toString()
             : undefined,
+        description: rawInput.description,
         updatedAt: now,
-        version: sql`${schema.products.version} + 1` as unknown as number,
+        version: sql`${schema.products.version} + 1` as unknown as number, // Bypass strict type check
         syncStatus: false,
       };
 
-      // 🛠️ FIX: Clean undefined values safely
-      const finalUpdateData = Object.fromEntries(
-        Object.entries(updateData).filter(([_, v]) => v !== undefined),
-      );
+      // Filter out undefined values
+      const finalUpdateData = Object.keys(updateData).reduce(
+        (acc, key) => {
+          const val = updateData[key as keyof typeof updateData];
+          if (val !== undefined) {
+            acc[key] = val;
+          }
+          return acc;
+        },
+        {} as Record<string, unknown>,
+      ) as Partial<typeof schema.products.$inferInsert>;
 
       await db
         .update(schema.products)

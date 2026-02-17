@@ -1,7 +1,7 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import * as schema from "@/db/schema";
-import { getDb } from "@/lib/db";
+import { getDb, runTransactionWithRetry } from "@/lib/db";
 import type { CheckoutPayload } from "@/lib/validations/schema";
 
 // Custom Error Class agar UI bisa membedakan error validasi vs error sistem
@@ -20,7 +20,7 @@ export const OrderService = {
     const db = getDb();
     const productIds = payload.items.map((item) => item.productId);
 
-    return await db.transaction(async (tx) => {
+    return await runTransactionWithRetry(db, async (tx) => {
       // 1. Fetch Data
       const dbProducts = await tx
         .select()
@@ -41,9 +41,10 @@ export const OrderService = {
 
       // 3. Totals & Tax
       const taxRate = 0.11;
-      const taxAmount = subtotal * taxRate;
-      const totalAmount = subtotal + taxAmount;
-      const paid = parseFloat(payload.amountPaid);
+      const subtotalInt = Math.round(subtotal);
+      const taxAmount = Math.round(subtotalInt * taxRate);
+      const totalAmount = subtotalInt + taxAmount;
+      const paid = Math.round(parseFloat(payload.amountPaid));
       const change = paid - totalAmount;
 
       if (change < 0) {
@@ -102,6 +103,7 @@ export const OrderService = {
       const price = parseFloat(product.price);
       subtotal += price * item.quantity;
       const newStock = product.stock - item.quantity;
+      const now = new Date();
 
       orderItemsData.push({
         id: uuidv7(),
@@ -112,6 +114,10 @@ export const OrderService = {
         skuSnapshot: product.sku,
         priceAtTime: product.price,
         costPriceAtTime: product.costPrice,
+        createdAt: now,
+        updatedAt: now,
+        version: 1,
+        syncStatus: false,
       });
 
       productsToUpdate.push({ id: product.id, newStock });
@@ -124,8 +130,8 @@ export const OrderService = {
         type: "sale" as const,
         referenceId: orderId,
         userId: cashierId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: now,
+        updatedAt: now,
         version: 1,
         syncStatus: false,
       });

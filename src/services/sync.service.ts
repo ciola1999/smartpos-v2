@@ -17,10 +17,10 @@ import type {
   SQLiteTableWithColumns,
 } from "drizzle-orm/sqlite-core";
 import * as schema from "@/db/schema";
-import { initDb, type LocalDB } from "@/lib/db";
+import { initDb, runTransactionWithRetry } from "@/lib/db";
 
 // -----------------------------------------------------------------------------
-// 1️⃣ TYPE DEFINITIONS & CONFIGURATION
+// 1️⃣ OBSOLETE_STEP_SEE_INSTRUCTIONS & CONFIGURATION
 // -----------------------------------------------------------------------------
 
 /**
@@ -68,41 +68,6 @@ const TABLES_TO_SYNC: { name: string; table: SyncableTable }[] = [
 // -----------------------------------------------------------------------------
 // 2️⃣ HELPER FUNCTIONS (UTILITIES)
 // -----------------------------------------------------------------------------
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-type TransactionTx = Parameters<Parameters<LocalDB["transaction"]>[0]>[0];
-
-/**
- * 🛡️ Retry Transaction Wrapper
- */
-async function runTransactionWithRetry<T>(
-  db: LocalDB,
-  operation: (tx: TransactionTx) => Promise<T>,
-  maxRetries = 3,
-): Promise<T> {
-  let attempt = 0;
-  while (attempt < maxRetries) {
-    try {
-      return await db.transaction(operation);
-    } catch (e: unknown) {
-      const error = e as Error & { code?: string };
-      const isLocked =
-        error.message?.toLowerCase().includes("database is locked") ||
-        error.message?.toLowerCase().includes("busy") ||
-        error.code === "SQLITE_BUSY";
-
-      if (isLocked && attempt < maxRetries - 1) {
-        attempt++;
-        const delay = 200 * attempt + Math.random() * 100;
-        await sleep(delay);
-      } else {
-        throw error;
-      }
-    }
-  }
-  throw new Error(`Transaction failed after ${maxRetries} retries`);
-}
 
 /**
  * 🧽 Sanitize: Persiapan data KELUAR (Local -> Cloud)

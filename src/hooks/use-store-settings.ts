@@ -16,10 +16,14 @@ export function useStoreSettings() {
     resolver: zodResolver(storeProfileSchema),
     defaultValues: {
       name: "",
+      description: "",
       address: "",
       phone: "",
       email: "",
+      website: "",
+      logoUrl: "",
       currency: "IDR",
+      receiptFooter: "",
     },
   });
 
@@ -33,10 +37,14 @@ export function useStoreSettings() {
       if (!isMounted) return;
       form.reset({
         name: settings.name ?? "",
+        description: settings.description ?? "",
         address: settings.address ?? "",
         phone: settings.phone ?? "",
         email: settings.email ?? "",
+        website: settings.website ?? "",
+        logoUrl: settings.logoUrl ?? "",
         currency: settings.currency ?? "IDR",
+        receiptFooter: settings.receiptFooter ?? "",
       });
     };
 
