@@ -1,84 +1,85 @@
 import { and, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
-import { inventoryLogs, products } from "@/db/schema";
+import * as schema from "@/db/schema";
 import { getDb } from "@/lib/db";
-import { type ProductInput, productSchema } from "@/lib/validations/product";
+import {
+  ProductFormSchema,
+  type ProductFormValues,
+} from "@/lib/validations/product";
 
 export const ProductService = {
   // --- READ ---
-  async getAll(query?: string) {
+  getAll: async (query?: string) => {
     try {
-      // 1. Filter Pencarian
+      const db = await getDb();
+
       const searchFilter = query
         ? or(
-            like(products.name, `%${query}%`),
-            like(products.sku, `%${query}%`),
-            like(products.barcode, `%${query}%`),
+            like(schema.products.name, `%${query}%`),
+            like(schema.products.sku, `%${query}%`),
+            like(schema.products.barcode, `%${query}%`),
           )
         : undefined;
 
-      // 2. Query (Hanya yang Active & Belum Deleted)
-      // Kita pakai 'and' untuk menggabungkan search + filter aktif
       const whereCondition = and(
-        eq(products.isActive, true),
-        isNull(products.deletedAt),
+        eq(schema.products.isActive, true),
+        isNull(schema.products.deletedAt),
         searchFilter,
       );
 
-      const data = await getDb()
+      const data = await db
         .select()
-        .from(products)
+        .from(schema.products)
         .where(whereCondition)
-        .orderBy(desc(products.createdAt));
+        .orderBy(desc(schema.products.createdAt));
 
       return { success: true, data };
-    } catch (_error) {
+    } catch (error) {
+      console.error("ProductService.getAll Error:", error);
       return { success: false, error: "Gagal mengambil data produk." };
     }
   },
 
   // --- CREATE ---
-  async create(rawInput: ProductInput, userId: string) {
-    // Butuh userId untuk Audit Log
+  create: async (rawInput: ProductFormValues, userId: string = "system") => {
     try {
-      const validated = productSchema.parse(rawInput);
+      const validated = ProductFormSchema.parse(rawInput);
       const newId = uuidv7();
+      const now = new Date();
+      const db = await getDb();
 
-      // 🔥 TRANSACTION: Wajib atomic (Produk + Log + Sync)
-      await getDb().transaction(async (tx) => {
-        // 1. Insert Product
-        await tx.insert(products).values({
+      await db.transaction(async (tx) => {
+        await tx.insert(schema.products).values({
           id: newId,
           name: validated.name,
           categoryId: validated.categoryId ?? null,
-          sku: validated.sku || null,
-          barcode: validated.barcode || null,
+          sku: validated.sku || `SKU-${Date.now()}`,
+          // barcode: validated.barcode || null,
 
           price: validated.price.toString(),
-          costPrice: "0",
+          costPrice: validated.costPrice.toString(),
 
           stock: validated.stock,
-          unit: validated.unit,
+          // unit: validated.unit || "pcs",
 
           isActive: true,
-
-          // 🔄 SYNC CRITICAL
+          createdAt: now,
+          updatedAt: now,
           version: 1,
-          syncStatus: false, // Dirty (perlu di-push ke cloud)
+          syncStatus: false,
         });
 
-        // 2. Jika ada Initial Stock, catat di Inventory Log!
         if (validated.stock > 0) {
-          await tx.insert(inventoryLogs).values({
+          await tx.insert(schema.inventoryLogs).values({
             id: uuidv7(),
             productId: newId,
             changeAmount: validated.stock,
             finalStock: validated.stock,
-            type: "correction", // atau "restock"
-            note: "Initial Stock",
-            userId: userId, // Siapa yang input
-
-            // 🔄 SYNC CRITICAL
+            type: "correction",
+            note: "Initial Stock Setup",
+            userId: userId,
+            createdAt: now,
+            updatedAt: now,
             version: 1,
             syncStatus: false,
           });
@@ -87,9 +88,9 @@ export const ProductService = {
 
       return { success: true, data: newId };
     } catch (error) {
-      // Error handling yang lebih presisi
+      console.error("ProductService.create Error:", error);
       if (error instanceof Error) {
-        if (error.message.includes("UNIQUE")) {
+        if (error.message.includes("UNIQUE constraint failed")) {
           return { success: false, error: "SKU atau Barcode sudah terdaftar." };
         }
       }
@@ -98,33 +99,40 @@ export const ProductService = {
   },
 
   // --- UPDATE ---
-  async update(id: string, rawInput: ProductInput) {
+  update: async (id: string, rawInput: Partial<ProductFormValues>) => {
     try {
-      const validated = productSchema.parse(rawInput);
+      const db = await getDb();
+      const now = new Date();
 
-      // ⚠️ WARNING: Kita menghapus 'stock' dari update disini.
-      // Perubahan stok WAJIB lewat fitur "Stock Opname" atau "Restock" terpisah.
-      // Agar inventory logs tetap valid.
+      const updateData: Partial<typeof schema.products.$inferInsert> = {
+        name: rawInput.name,
+        categoryId: rawInput.categoryId ?? null,
+        sku: rawInput.sku,
+        // barcode: rawInput.barcode,
+        price:
+          rawInput.price !== undefined ? rawInput.price.toString() : undefined,
+        costPrice:
+          rawInput.costPrice !== undefined
+            ? rawInput.costPrice.toString()
+            : undefined,
+        updatedAt: now,
+        version: sql`${schema.products.version} + 1` as unknown as number,
+        syncStatus: false,
+      };
 
-      await getDb()
-        .update(products)
-        .set({
-          name: validated.name,
-          categoryId: validated.categoryId ?? null,
-          sku: validated.sku || null,
-          barcode: validated.barcode || null,
-          price: validated.price.toString(),
-          unit: validated.unit,
+      // 🛠️ FIX: Clean undefined values safely
+      const finalUpdateData = Object.fromEntries(
+        Object.entries(updateData).filter(([_, v]) => v !== undefined),
+      );
 
-          // 🔄 SYNC & VERSIONING
-          updatedAt: new Date(),
-          version: sql`${products.version} + 1`, // Increment version
-          syncStatus: false, // Tandai dirty
-        })
-        .where(eq(products.id, id));
+      await db
+        .update(schema.products)
+        .set(finalUpdateData)
+        .where(eq(schema.products.id, id));
 
       return { success: true };
     } catch (error) {
+      console.error("ProductService.update Error:", error);
       if (error instanceof Error && error.message.includes("UNIQUE")) {
         return { success: false, error: "SKU atau Barcode konflik." };
       }
@@ -132,27 +140,37 @@ export const ProductService = {
     }
   },
 
-  // --- DELETE (SOFT DELETE) ---
-  async delete(id: string) {
+  // --- DELETE ---
+  delete: async (id: string) => {
     try {
-      // Jangan delete row fisik (Hard Delete) agar sync engine tahu ini dihapus
-      // Gunakan Soft Delete atau set isActive = false
-      await getDb()
-        .update(products)
+      const db = await getDb();
+      const now = new Date();
+
+      await db
+        .update(schema.products)
         .set({
           isActive: false,
-          deletedAt: new Date(),
-
-          // 🔄 SYNC
-          updatedAt: new Date(),
-          version: sql`${products.version} + 1`,
+          deletedAt: now,
+          updatedAt: now,
+          version: sql`${schema.products.version} + 1`,
           syncStatus: false,
         })
-        .where(eq(products.id, id));
+        .where(eq(schema.products.id, id));
 
       return { success: true };
-    } catch (_error) {
+    } catch (error) {
+      console.error("ProductService.delete Error:", error);
       return { success: false, error: "Gagal menghapus produk." };
     }
+  },
+
+  getById: async (id: string) => {
+    const db = await getDb();
+    const result = await db
+      .select()
+      .from(schema.products)
+      .where(eq(schema.products.id, id))
+      .limit(1);
+    return result[0] || null;
   },
 };

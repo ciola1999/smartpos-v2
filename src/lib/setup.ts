@@ -1,110 +1,124 @@
-import bcrypt from "bcryptjs";
-import { sql } from "drizzle-orm";
+import bcrypt from "bcryptjs"; // Pastikan install: bun add bcryptjs @types/bcryptjs
+import { eq } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
-import { storeSettings, users } from "@/db/schema";
+import * as schema from "@/db/schema";
 import { getDb } from "@/lib/db";
-import { INITIAL_MIGRATION_SQL } from "./initial-sql";
 
-type DrizzleDB = ReturnType<typeof getDb>;
-
-const STORE_MAIN_ID = "STORE_MAIN";
-
-/**
- * 🛠️ CORE MIGRATION RUNNER
- */
-async function execMigrationStatement(db: DrizzleDB, query: string) {
-  const cleanQuery = query.trim();
-  if (!cleanQuery) return;
-
-  try {
-    await db.run(sql.raw(cleanQuery));
-  } catch (error: unknown) {
-    const errMessage = error instanceof Error ? error.message : String(error);
-
-    if (
-      errMessage.includes("already exists") ||
-      errMessage.includes("duplicate column")
-    ) {
-      return;
-    }
-    throw error;
-  }
+// -----------------------------------------------------------------------------
+// 🛠️ HELPER: ERROR CLEANER
+// -----------------------------------------------------------------------------
+function cleanError(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
-async function runRawMigration(db: DrizzleDB) {
-  const queries = INITIAL_MIGRATION_SQL.split("--> statement-breakpoint");
-  for (const query of queries) {
-    await execMigrationStatement(db, query);
-  }
-}
-
-/**
- * 🌱 SEEDER RUNNER (BULLETPROOF VERSION)
- */
-async function runSeeder(db: DrizzleDB) {
-  const hashedPassword = await bcrypt.hash("admin123", 10);
-
-  // --- 1. SEED USER ADMIN ---
-  await db
-    .insert(users)
-    .values({
-      id: uuidv7(),
-      name: "Super Admin",
-      username: "admin",
-      password: hashedPassword,
-      role: "admin",
-      isActive: true,
-      version: 1,
-      syncStatus: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .onConflictDoNothing({ target: users.username });
-
-  // --- 2. SEED STORE SETTINGS ---
-  await db
-    .insert(storeSettings)
-    .values({
-      id: STORE_MAIN_ID,
-      name: "My Smart POS",
-      currency: "IDR",
-      address: "Indonesia",
-      version: 1,
-      syncStatus: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .onConflictDoNothing({ target: storeSettings.id });
-}
-
-/**
- * 🚀 MAIN SETUP FUNCTION
- */
+// -----------------------------------------------------------------------------
+// 🚀 MAIN SETUP FUNCTION
+// -----------------------------------------------------------------------------
 export const runSystemSetup = async () => {
-  const db = getDb();
+  console.log("🚀 [SETUP] Starting system integrity check...");
 
   try {
-    // 1️⃣ GUARD CLAUSE: Cek Tabel via Metadata SQLite
-    const checkTable = await db.run(
-      sql`SELECT name FROM sqlite_master WHERE type='table' AND name='users' LIMIT 1;`,
-    );
+    // Ambil instance DB yang sudah di-init di db.ts
+    const db = getDb();
 
-    const rows = (checkTable as { rows?: unknown[] }).rows;
-    const isInitialized = Array.isArray(rows) && rows.length > 0;
-
-    if (!isInitialized) {
-      await runRawMigration(db);
+    // -------------------------------------------------------------------------
+    // 1. SMOKE TEST: Cek Ketersediaan Tabel
+    // -------------------------------------------------------------------------
+    try {
+      // Kita coba select 1 baris dari tabel settings untuk memastikan tabel ada
+      await db.select().from(schema.storeSettings).limit(1);
+    } catch (error) {
+      const msg = cleanError(error);
+      if (msg.includes("no such table")) {
+        console.warn(
+          "⚠️ [SETUP] Tables not found. Waiting for Auto-Repair or Drizzle Kit...",
+        );
+        // Jangan throw error fatal, biarkan db.ts repairSchema bekerja di background
+        // atau return false agar UI bisa menampilkan loading state.
+        return { success: false, message: "Tables syncing..." };
+      }
+      throw error;
     }
 
-    // 2️⃣ Seeder (Aman dijalankan berkali-kali)
-    await runSeeder(db);
+    // -------------------------------------------------------------------------
+    // 2. SEED: STORE SETTINGS (Idempotent)
+    // -------------------------------------------------------------------------
+    // Cek apakah settings sudah ada?
+    const existingSettings = await db
+      .select()
+      .from(schema.storeSettings)
+      .limit(1);
 
+    if (existingSettings.length === 0) {
+      console.log("📦 [SETUP] Seeding Default Store Settings...");
+
+      const now = new Date();
+      await db.insert(schema.storeSettings).values({
+        id: "STORE_MAIN", // Hardcoded ID untuk Single Store
+        name: "Smart POS Store",
+        address: "Lokasi Toko",
+        phone: "-",
+        syncStatus: false,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. SEED: ADMIN USER (Idempotent)
+    // -------------------------------------------------------------------------
+    // Cek apakah ada user dengan role admin?
+    const adminExists = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.role, "admin"))
+      .limit(1);
+
+    if (adminExists.length === 0) {
+      console.log("👤 [SETUP] Creating Super Admin...");
+
+      const hashedPassword = await bcrypt.hash("admin123", 10);
+      const now = new Date();
+
+      await db.insert(schema.users).values({
+        id: uuidv7(),
+        name: "Super Admin",
+        username: "admin", // Required field
+        email: "admin@pos.local",
+        password: hashedPassword,
+        role: "admin",
+        syncStatus: false,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. SEED: DEFAULT CATEGORY (Optional but Recommended)
+    // -------------------------------------------------------------------------
+    await db
+      .insert(schema.categories)
+      .values({
+        id: "CAT_DEFAULT",
+        name: "Umum",
+        slug: "umum",
+        description: "Kategori Default",
+        syncStatus: false,
+        version: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .onConflictDoNothing(); // Skip jika sudah ada
+
+    console.log("✅ [SETUP] System Integrity Verified.");
     return { success: true, message: "System Ready" };
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error);
-    if (msg.includes("UNIQUE constraint failed")) {
-      return { success: true, message: "System Ready (Recovered)" };
-    }
-    throw new Error(msg);
+  } catch (error) {
+    const msg = cleanError(error);
+    console.error("❌ [SETUP_FATAL]", msg);
+
+    // Jangan crash app total, tapi beritahu UI ada masalah
+    return { success: false, message: `Setup Failed: ${msg}` };
   }
 };

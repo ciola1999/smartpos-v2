@@ -7,7 +7,7 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
-// --- 1. SHARED HELPERS (DRY Principle) ---
+// --- 1. SHARED HELPERS (DRY & CONSTISTENCY) ---
 
 const timestamps = {
   createdAt: integer("created_at", { mode: "timestamp_ms" })
@@ -20,37 +20,51 @@ const timestamps = {
   deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
 };
 
+// Kolom wajib untuk Sync Engine (Turso <-> Local)
 const syncColumns = {
-  version: integer("version").default(1).notNull(),
+  version: integer("version").default(1).notNull(), // Optimistic Concurrency Control
   syncStatus: integer("sync_status", { mode: "boolean" })
     .default(false)
-    .notNull(),
+    .notNull(), // false = dirty/local, true = synced
 };
 
 // --- 2. CORE TABLES ---
 
-export const users = sqliteTable("users", {
-  id: text("id").primaryKey(), // UUID v7
-  name: text("name").notNull(),
-  username: text("username").unique().notNull(),
-  password: text("password").notNull(),
-  role: text("role", { enum: ["admin", "cashier"] })
-    .default("cashier")
-    .notNull(),
-  avatarUrl: text("avatar_url").default(""),
-  isActive: integer("is_active", { mode: "boolean" }).default(true),
-  ...timestamps,
-  ...syncColumns,
-});
+export const users = sqliteTable(
+  "users",
+  {
+    id: text("id").primaryKey(), // UUID v7
+    name: text("name").notNull(),
+    username: text("username").unique().notNull(),
+    email: text("email").unique(),
+    password: text("password").notNull(),
+    role: text("role", { enum: ["admin", "cashier"] })
+      .default("cashier")
+      .notNull(),
+    avatarUrl: text("avatar_url").default(""),
+    isActive: integer("is_active", { mode: "boolean" }).default(true),
+    ...timestamps,
+    ...syncColumns,
+  },
+  (table) => ({
+    usernameIdx: index("users_username_idx").on(table.username),
+  }),
+);
 
-export const categories = sqliteTable("categories", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  description: text("description"),
-  slug: text("slug").unique().notNull(),
-  ...timestamps,
-  ...syncColumns,
-});
+export const categories = sqliteTable(
+  "categories",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description"),
+    slug: text("slug").unique().notNull(),
+    ...timestamps,
+    ...syncColumns,
+  },
+  (table) => ({
+    slugIdx: index("categories_slug_idx").on(table.slug),
+  }),
+);
 
 export const products = sqliteTable(
   "products",
@@ -66,9 +80,9 @@ export const products = sqliteTable(
     barcode: text("barcode").unique(),
     sku: text("sku").unique(),
 
-    // 💰 Money
+    // 💰 Money Handling: Selalu gunakan String/Text untuk menghindari floating point error
     price: text("price").notNull().default("0"),
-    costPrice: text("cost_price").notNull().default("0"), // Bisa manual / kalkulasi resep
+    costPrice: text("cost_price").notNull().default("0"),
 
     stock: real("stock").notNull().default(0),
     minStock: real("min_stock").notNull().default(0),
@@ -76,7 +90,7 @@ export const products = sqliteTable(
 
     isActive: integer("is_active", { mode: "boolean" }).default(true).notNull(),
 
-    // 🔥 NEW: Penanda apakah produk ini punya resep
+    // 🔥 Logic Inventory: Jika true, stok diambil dari ingredients
     hasRecipe: integer("has_recipe", { mode: "boolean" })
       .default(false)
       .notNull(),
@@ -88,6 +102,7 @@ export const products = sqliteTable(
     nameIdx: index("product_name_idx").on(table.name),
     categoryIdx: index("product_category_idx").on(table.categoryId),
     activeIdx: index("product_active_idx").on(table.isActive),
+    barcodeIdx: index("product_barcode_idx").on(table.barcode), // Penting untuk scan barcode
   }),
 );
 
@@ -102,12 +117,15 @@ export const ingredients = sqliteTable(
     stock: real("stock").notNull().default(0),
     minStock: real("min_stock").notNull().default(0),
     costPerUnit: text("cost_per_unit").default("0"),
+
+    // Nutrition Facts (Optional)
     calories: real("calories").default(0),
     protein: real("protein").default(0),
     carbohydrates: real("carbs").default(0),
     sugar: real("sugar").default(0),
     fat: real("fat").default(0),
     sodium: real("sodium").default(0),
+
     isGlutenFree: integer("is_gluten_free", { mode: "boolean" }).default(true),
     containsDairy: integer("contains_dairy", { mode: "boolean" }).default(
       false,
@@ -133,7 +151,7 @@ export const productRecipes = sqliteTable(
       .references(() => ingredients.id, { onDelete: "restrict" })
       .notNull(),
 
-    quantity: real("quantity").notNull(), // Usage amount
+    quantity: real("quantity").notNull(), // Jumlah pemakaian (misal: 15gr)
 
     ...timestamps,
     ...syncColumns,
@@ -190,6 +208,7 @@ export const orders = sqliteTable(
     }),
     cashierId: text("cashier_id").references(() => users.id),
 
+    // Financial Snapshots (Penting untuk audit)
     subtotal: text("subtotal").notNull().default("0"),
     discountAmount: text("discount_amount").default("0"),
     taxAmount: text("tax_amount").default("0"),
@@ -206,12 +225,14 @@ export const orders = sqliteTable(
     })
       .notNull()
       .default("cash"),
+
     amountPaid: text("amount_paid").notNull(),
     change: text("change").notNull().default("0"),
 
     tableNumber: text("table_number"),
     customerName: text("customer_name"),
     queueNumber: integer("queue_number").notNull().default(1),
+
     status: text("status", {
       enum: ["pending", "completed", "cancelled"],
     }).default("pending"),
@@ -234,14 +255,17 @@ export const orderItems = sqliteTable(
       .references(() => orders.id, { onDelete: "cascade" })
       .notNull(),
     productId: text("product_id").references(() => products.id, {
-      onDelete: "set null",
+      onDelete: "set null", // Keep history even if product deleted
     }),
 
+    // Snapshot Data (Wajib ada jika produk master berubah harga/nama)
     productNameSnapshot: text("product_name_snapshot").notNull(),
     skuSnapshot: text("sku_snapshot"),
     quantity: integer("quantity").notNull(),
     priceAtTime: text("price_at_time").notNull(),
     costPriceAtTime: text("cost_price_at_time").default("0"),
+    ...timestamps,
+    ...syncColumns,
   },
   (table) => ({
     orderIdIdx: index("order_item_order_idx").on(table.orderId),
@@ -256,7 +280,7 @@ export const orderPayments = sqliteTable("order_payments", {
     .notNull(),
   paymentMethod: text("payment_method").notNull(),
   amount: text("amount").notNull(),
-  referenceId: text("reference_id"),
+  referenceId: text("reference_id"), // No. Ref EDC / Transfer
   ...timestamps,
   ...syncColumns,
 });
@@ -267,14 +291,18 @@ export const inventoryLogs = sqliteTable(
     id: text("id").primaryKey(),
     productId: text("product_id").references(() => products.id),
     ingredientId: text("ingredient_id").references(() => ingredients.id),
-    changeAmount: real("change_amount").notNull(),
+
+    changeAmount: real("change_amount").notNull(), // Negatif = Keluar, Positif = Masuk
     finalStock: real("final_stock").notNull(),
+
     type: text("type", {
       enum: ["sale", "restock", "correction", "damage", "void"],
     }).notNull(),
+
     note: text("note"),
-    referenceId: text("reference_id"),
+    referenceId: text("reference_id"), // Bisa ID Order atau ID Restock
     userId: text("user_id").references(() => users.id),
+
     ...timestamps,
     ...syncColumns,
   },
@@ -292,10 +320,12 @@ export const shifts = sqliteTable("shifts", {
     .notNull(),
   startTime: integer("start_time", { mode: "timestamp" }).notNull(),
   endTime: integer("end_time", { mode: "timestamp" }),
+
   startCash: text("start_cash").notNull(),
   expectedEndCash: text("expected_end_cash"),
   actualEndCash: text("actual_end_cash"),
-  difference: text("difference"),
+  difference: text("difference"), // Selisih
+
   status: text("status", { enum: ["open", "closed"] }).default("open"),
   ...timestamps,
   ...syncColumns,
@@ -315,7 +345,7 @@ export const storeSettings = sqliteTable("store_settings", {
     "Terima kasih atas kunjungan Anda!",
   ),
 
-  // ☁️ Cloud Sync Config
+  // ☁️ Cloud Sync Config (Turso Integration)
   cloudUrl: text("cloud_url"),
   cloudKey: text("cloud_key"),
   lastSyncAt: integer("last_sync_at", { mode: "timestamp" }),
@@ -324,7 +354,7 @@ export const storeSettings = sqliteTable("store_settings", {
   ...syncColumns,
 });
 
-// --- 5. RELATIONS (CONNECTED) ---
+// --- 5. RELATIONS (DRY & CONNECTED) ---
 
 export const categoriesRelations = relations(categories, ({ many }) => ({
   products: many(products),
@@ -336,13 +366,13 @@ export const productsRelations = relations(products, ({ one, many }) => ({
     references: [categories.id],
   }),
   orderItems: many(orderItems),
-  // 🔥 NEW: Relasi ke Resep
   recipes: many(productRecipes),
   inventoryLogs: many(inventoryLogs),
 }));
 
 export const ingredientsRelations = relations(ingredients, ({ many }) => ({
   usedIn: many(productRecipes),
+  logs: many(inventoryLogs), // Added: Relasi balik ke logs
 }));
 
 export const productRecipesRelations = relations(productRecipes, ({ one }) => ({
@@ -419,12 +449,14 @@ export const shiftsRelations = relations(shifts, ({ one }) => ({
   }),
 }));
 
-// --- 6. TYPE EXPORTS (COMPLETE) ---
+// --- 6. TYPE EXPORTS (STRICT INFERENCE) ---
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 
 export type Category = typeof categories.$inferSelect;
+export type NewCategory = typeof categories.$inferInsert;
+
 export type Product = typeof products.$inferSelect;
 export type NewProduct = typeof products.$inferInsert;
 
@@ -441,10 +473,22 @@ export type OrderItem = typeof orderItems.$inferSelect;
 export type NewOrderItem = typeof orderItems.$inferInsert;
 
 export type OrderPayment = typeof orderPayments.$inferSelect;
+export type NewOrderPayment = typeof orderPayments.$inferInsert;
+
 export type InventoryLog = typeof inventoryLogs.$inferSelect;
+export type NewInventoryLog = typeof inventoryLogs.$inferInsert;
+
 export type Shift = typeof shifts.$inferSelect;
+export type NewShift = typeof shifts.$inferInsert;
 
 export type Member = typeof members.$inferSelect;
+export type NewMember = typeof members.$inferInsert;
+
 export type Discount = typeof discounts.$inferSelect;
+export type NewDiscount = typeof discounts.$inferInsert;
+
 export type Tax = typeof taxes.$inferSelect;
+export type NewTax = typeof taxes.$inferInsert;
+
 export type StoreSetting = typeof storeSettings.$inferSelect;
+export type NewStoreSetting = typeof storeSettings.$inferInsert;

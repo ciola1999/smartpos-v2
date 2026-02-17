@@ -1,66 +1,80 @@
-import { createClient } from "@libsql/client";
-import { eq, getTableColumns, inArray, sql } from "drizzle-orm";
-import type { AnySQLiteTable, SQLiteColumn } from "drizzle-orm/sqlite-core";
+import {
+  type Client,
+  createClient,
+  type InArgs,
+  type InStatement,
+  type InValue,
+} from "@libsql/client";
+import {
+  eq,
+  getTableColumns,
+  inArray,
+  sql,
+  type TableConfig,
+} from "drizzle-orm";
+import type {
+  SQLiteColumn,
+  SQLiteTableWithColumns,
+} from "drizzle-orm/sqlite-core";
 import * as schema from "@/db/schema";
 import { initDb, type LocalDB } from "@/lib/db";
 
+// -----------------------------------------------------------------------------
+// 1️⃣ TYPE DEFINITIONS & CONFIGURATION
+// -----------------------------------------------------------------------------
+
 /**
- * 🔒 Strictly typed interface for tables that support synchronization.
+ * 🔒 Interface Table yang Valid untuk Sync
  */
-interface SyncableSQLiteTable extends AnySQLiteTable {
+type SyncableTable = SQLiteTableWithColumns<TableConfig> & {
   id: SQLiteColumn;
   version: SQLiteColumn;
   syncStatus: SQLiteColumn;
-}
+};
 
-const TABLES_TO_SYNC: { name: string; table: SyncableSQLiteTable }[] = [
-  { name: "users", table: schema.users as unknown as SyncableSQLiteTable },
-  {
-    name: "categories",
-    table: schema.categories as unknown as SyncableSQLiteTable,
-  },
-  {
-    name: "products",
-    table: schema.products as unknown as SyncableSQLiteTable,
-  },
+// Casting ke unknown dulu baru ke SyncableTable untuk bypass strict type checking Drizzle yang kompleks
+const TABLES_TO_SYNC: { name: string; table: SyncableTable }[] = [
+  { name: "users", table: schema.users as unknown as SyncableTable },
+  { name: "categories", table: schema.categories as unknown as SyncableTable },
+  { name: "products", table: schema.products as unknown as SyncableTable },
   {
     name: "ingredients",
-    table: schema.ingredients as unknown as SyncableSQLiteTable,
+    table: schema.ingredients as unknown as SyncableTable,
   },
   {
     name: "product_recipes",
-    table: schema.productRecipes as unknown as SyncableSQLiteTable,
+    table: schema.productRecipes as unknown as SyncableTable,
   },
-  { name: "members", table: schema.members as unknown as SyncableSQLiteTable },
-  {
-    name: "discounts",
-    table: schema.discounts as unknown as SyncableSQLiteTable,
-  },
-  { name: "taxes", table: schema.taxes as unknown as SyncableSQLiteTable },
-  { name: "orders", table: schema.orders as unknown as SyncableSQLiteTable },
+  { name: "members", table: schema.members as unknown as SyncableTable },
+  { name: "discounts", table: schema.discounts as unknown as SyncableTable },
+  { name: "taxes", table: schema.taxes as unknown as SyncableTable },
+  { name: "orders", table: schema.orders as unknown as SyncableTable },
+  { name: "order_items", table: schema.orderItems as unknown as SyncableTable },
   {
     name: "order_payments",
-    table: schema.orderPayments as unknown as SyncableSQLiteTable,
+    table: schema.orderPayments as unknown as SyncableTable,
   },
   {
     name: "inventory_logs",
-    table: schema.inventoryLogs as unknown as SyncableSQLiteTable,
+    table: schema.inventoryLogs as unknown as SyncableTable,
   },
-  { name: "shifts", table: schema.shifts as unknown as SyncableSQLiteTable },
+  { name: "shifts", table: schema.shifts as unknown as SyncableTable },
   {
     name: "store_settings",
-    table: schema.storeSettings as unknown as SyncableSQLiteTable,
+    table: schema.storeSettings as unknown as SyncableTable,
   },
 ];
 
-/**
- * 🛡️ Helper: Sleep untuk Retry Logic
- */
+// -----------------------------------------------------------------------------
+// 2️⃣ HELPER FUNCTIONS (UTILITIES)
+// -----------------------------------------------------------------------------
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 type TransactionTx = Parameters<Parameters<LocalDB["transaction"]>[0]>[0];
+
 /**
- * 🛡️ Helper: Retry Transaction Wrapper for SQLite
- * Menangani error 'database is locked' secara otomatis.
+ * 🛡️ Retry Transaction Wrapper
  */
 async function runTransactionWithRetry<T>(
   db: LocalDB,
@@ -73,43 +87,59 @@ async function runTransactionWithRetry<T>(
       return await db.transaction(operation);
     } catch (e: unknown) {
       const error = e as Error & { code?: string };
-
       const isLocked =
-        error.message?.includes("database is locked") ||
-        error.message?.includes("cannot rollback") ||
+        error.message?.toLowerCase().includes("database is locked") ||
+        error.message?.toLowerCase().includes("busy") ||
         error.code === "SQLITE_BUSY";
 
       if (isLocked && attempt < maxRetries - 1) {
         attempt++;
-        const delay = 200 * attempt; // Backoff: 200ms, 400ms, 600ms
+        const delay = 200 * attempt + Math.random() * 100;
         await sleep(delay);
       } else {
-        throw error; // Lempar error asli jika bukan locked
+        throw error;
       }
     }
   }
-  throw new Error("Transaction failed after max retries");
+  throw new Error(`Transaction failed after ${maxRetries} retries`);
 }
 
 /**
- * 🛰️ Normalisasi Nilai: Konversi data dari Cloud (Turso) ke tipe Drizzle Lokal
+ * 🧽 Sanitize: Persiapan data KELUAR (Local -> Cloud)
+ * Return type wajib InValue agar kompatibel dengan LibSQL Client.
  */
-function normalizeSyncValue(
+function sanitizeForCloud(val: unknown): InValue {
+  if (val === null || val === undefined) return null;
+  if (val instanceof Date) return val.getTime(); // Timestamp (number)
+  if (typeof val === "boolean") return val ? 1 : 0; // Integer (0/1)
+  if (typeof val === "bigint") return Number(val); // Integer
+  // LibSQL InValue supports: string, number, null, bigint, ArrayBuffer
+  if (typeof val === "string" || typeof val === "number") return val;
+  // Fallback safe convert to string
+  return String(val);
+}
+
+/**
+ * 🛰️ Normalize: Persiapan data MASUK (Cloud -> Local Drizzle)
+ */
+function normalizeFromCloud(
   val: unknown,
   colDef: SQLiteColumn | undefined,
 ): unknown {
   if (!colDef || val === null || val === undefined) return val;
 
-  // @ts-expect-error - Access internal Drizzle metadata for mode
-  const mode = (colDef as any).mode || (colDef as any).config?.mode;
+  // Introspeksi properti internal Drizzle secara aman
+  // Kita hanya butuh config.mode, tidak butuh getSQLType (unused var fix)
+  const config = (colDef as unknown as { config?: { mode?: string } }).config;
+  const mode = config?.mode;
 
-  // Handle Timestamp Mode (Turso returns strings or numbers)
+  // Handle Timestamp
   if (mode === "timestamp_ms" || mode === "timestamp") {
-    const date = new Date(val as string | number);
-    return Number.isNaN(date.getTime()) ? null : date;
+    const dateVal = new Date(val as string | number);
+    return Number.isNaN(dateVal.getTime()) ? null : dateVal;
   }
 
-  // Handle Boolean Mode (LibSQL returns 0/1 for booleans)
+  // Handle Boolean
   if (mode === "boolean") {
     return val === 1 || val === "1" || val === true;
   }
@@ -118,187 +148,215 @@ function normalizeSyncValue(
 }
 
 /**
- * 🧽 Sanitize: Memberishkan nilai untuk dikirim ke Cloud
+ * 📦 Batch Builder
+ * Membuat statement SQL Upsert untuk LibSQL Cloud.
  */
-function sanitizeSyncValue(val: unknown): string | number | null {
-  if (val === null || val === undefined) return null;
-  if (val instanceof Date) return val.getTime();
-  if (typeof val === "boolean") return val ? 1 : 0;
-  if (typeof val === "number") return Number.isFinite(val) ? val : null;
-  if (typeof val === "bigint") return Number(val);
-  if (typeof val === "string") return val;
-  return JSON.stringify(val);
-}
-
-/**
- * 📝 Prepare: Membuat batch statement untuk satu tabel
- */
-function preparePushStatements(
+function buildUpsertStatement(
   tableName: string,
-  localRows: unknown[],
+  row: Record<string, unknown>,
   columns: Record<string, SQLiteColumn>,
-) {
-  return localRows
-    .map((row) => {
-      const rowData = row as Record<string, unknown>;
-      const keys: string[] = [];
-      const args: (string | number | null)[] = [];
-      let hasId = false;
+): InStatement | null {
+  const keys: string[] = [];
+  // Explicitly typed as InValue[] to match LibSQL expectation
+  const values: InValue[] = [];
+  const updateAssignments: string[] = [];
+  let hasId = false;
 
-      for (const [propName, column] of Object.entries(columns)) {
-        const dbName = column.name;
-        const val = rowData[propName];
+  for (const [propName, column] of Object.entries(columns)) {
+    const dbName = column.name;
+    const rawVal = row[propName];
 
-        if (dbName === "id" && val !== null && val !== undefined) hasId = true;
+    // Force sync_status to 1 (true) for cloud consistency
+    const val = dbName === "sync_status" ? 1 : sanitizeForCloud(rawVal);
 
-        keys.push(dbName);
-        args.push(sanitizeSyncValue(val));
-      }
+    if (dbName === "id" && val) hasId = true;
 
-      if (!hasId) return null;
+    keys.push(dbName);
+    values.push(val);
 
-      const placeholders = keys.map(() => "?").join(", ");
-      return {
-        sql: `INSERT OR REPLACE INTO ${tableName} (${keys.join(", ")}) VALUES (${placeholders})`,
-        args,
-      };
-    })
-    .filter((stmt): stmt is Exclude<typeof stmt, null> => stmt !== null);
+    if (dbName !== "id") {
+      updateAssignments.push(`${dbName} = excluded.${dbName}`);
+    }
+  }
+
+  if (!hasId) return null;
+
+  const placeholders = keys.map(() => "?").join(", ");
+
+  const sqlStr = `
+    INSERT INTO ${tableName} (${keys.join(", ")}) 
+    VALUES (${placeholders})
+    ON CONFLICT(id) DO UPDATE SET 
+    ${updateAssignments.join(", ")}
+  `;
+
+  // Return object strictly matching InStatement
+  return { sql: sqlStr, args: values };
 }
+
+// -----------------------------------------------------------------------------
+// 3️⃣ SYNC SERVICE CORE
+// -----------------------------------------------------------------------------
 
 export const SyncService = {
   /**
-   * 🚀 PUSH: Upload local changes to Turso
+   * 🚀 PUSH: Upload perubahan lokal ke Cloud
    */
-  push: async (url: string, key: string) => {
+  push: async (cloudUrl: string, cloudKey: string) => {
+    console.log("🚀 [SYNC] Starting PUSH...");
     const db = await initDb();
-    const client = createClient({ url, authToken: key });
-    let totalSyncedCount = 0;
+    let client: Client | null = null;
+    let totalSynced = 0;
 
     try {
-      for (const { name, table } of TABLES_TO_SYNC) {
-        const columns = getTableColumns(table);
+      client = createClient({ url: cloudUrl, authToken: cloudKey });
 
-        const localDataRows = await db
+      for (const { name, table } of TABLES_TO_SYNC) {
+        // 1. Ambil data lokal (dirty)
+        const dirtyRows = await db
           .select()
           .from(table)
           .where(eq(table.syncStatus, false));
 
-        if (localDataRows.length === 0) continue;
+        if (dirtyRows.length === 0) continue;
 
-        const statements = preparePushStatements(name, localDataRows, columns);
+        console.log(
+          `📤 [PUSH] Pushing ${dirtyRows.length} rows from '${name}'...`,
+        );
+
+        const columns = getTableColumns(table);
+        const statements: InStatement[] = [];
+
+        // 2. Build Statements
+        for (const row of dirtyRows) {
+          const stmt = buildUpsertStatement(
+            name,
+            row as Record<string, unknown>,
+            columns,
+          );
+          if (stmt) statements.push(stmt);
+        }
+
         if (statements.length === 0) continue;
 
-        // 🔥 Chunking (Max 50 statements per batch to avoid LibSQL limits)
+        // 3. Batch Execution
         const CHUNK_SIZE = 50;
         for (let i = 0; i < statements.length; i += CHUNK_SIZE) {
           const chunk = statements.slice(i, i + CHUNK_SIZE);
           await client.batch(chunk, "write");
         }
 
-        // Update status lokal (Mark as Synced) dalam satu batch
-        const rowIds = localDataRows
-          .map((r) => (r as { id: string }).id)
-          .filter(Boolean);
+        // 4. Acknowledge Local
+        const rowIds = dirtyRows.map((r) => r.id as string);
 
-        if (rowIds.length > 0) {
-          await runTransactionWithRetry(db, async (tx) => {
-            await tx
-              .update(table)
-              .set({ syncStatus: true })
-              .where(inArray(table.id, rowIds));
-          });
-        }
+        await runTransactionWithRetry(db, async (tx) => {
+          await tx
+            .update(table)
+            .set({ syncStatus: true })
+            .where(inArray(table.id, rowIds));
+        });
 
-        totalSyncedCount += localDataRows.length;
+        totalSynced += dirtyRows.length;
       }
     } catch (error) {
-      console.error("❌ Sync PUSH Error:", error);
+      console.error("❌ [SYNC] Push Failed:", error);
       throw error;
     } finally {
-      client.close();
+      if (client) client.close();
     }
 
-    return { success: true, count: totalSyncedCount };
+    console.log(`✅ [SYNC] Push Completed. Total: ${totalSynced}`);
+    return { success: true, count: totalSynced };
   },
 
   /**
-   * 📥 PULL: Download changes from Turso
+   * 📥 PULL: Download perubahan dari Cloud ke Lokal
    */
-  pull: async (url: string, key: string) => {
+  pull: async (cloudUrl: string, cloudKey: string) => {
+    console.log("📥 [SYNC] Starting PULL...");
     const db = await initDb();
-    const client = createClient({ url, authToken: key });
-    let totalUpdatedCount = 0;
+    let client: Client | null = null;
+    let totalUpdated = 0;
 
     try {
-      for (const { name, table } of TABLES_TO_SYNC) {
-        // 1. Prepare Metadata (CPU Bound)
-        const columns = getTableColumns(table);
-        const dbToPropMapping: Record<string, string> = {};
-        for (const [propName, col] of Object.entries(columns)) {
-          dbToPropMapping[col.name] = propName;
-        }
+      client = createClient({ url: cloudUrl, authToken: cloudKey });
 
-        // 2. Read Local Version (Read Operation - Fast)
-        const versionQuery = await db
-          .select({ version: table.version })
+      for (const { name, table } of TABLES_TO_SYNC) {
+        // 1. Cek Versi Lokal Terakhir
+        const maxVersionQuery = await db
+          .select({ ver: table.version })
           .from(table)
           .orderBy(sql`${table.version} DESC`)
           .limit(1);
 
-        const lastLocalVersion =
-          (versionQuery[0] as { version: number } | undefined)?.version ?? 0;
+        // Pastikan konversi ke number aman
+        const lastVersion = Number(maxVersionQuery[0]?.ver ?? 0);
 
-        // 3. Fetch from Cloud (Network Bound)
+        // 2. Fetch Delta dari Cloud
+        // Gunakan interface InArgs untuk argumen
+        const args: InArgs = [lastVersion];
+
         const result = await client.execute({
           sql: `SELECT * FROM ${name} WHERE version > ? ORDER BY version ASC`,
-          args: [lastLocalVersion],
+          args: args,
         });
 
-        const rows = result.rows;
-        if (rows.length === 0) continue;
+        if (result.rows.length === 0) continue;
 
-        // 4. PREPARE DATA BEFORE TRANSACTION (Heavy Lifting)
-        // 🔥 Robust Mapping using Turso ResultSet metadata
-        const preparedRows = rows.map((row) => {
-          const mappedRow: Record<string, unknown> = {};
-          const rowData = row as Record<string, unknown>;
+        console.log(
+          `📥 [PULL] Downloading ${result.rows.length} rows for '${name}'...`,
+        );
 
-          result.columns.forEach((colName) => {
-            const propName = dbToPropMapping[colName] || colName;
-            mappedRow[propName] = normalizeSyncValue(
-              rowData[colName],
-              columns[propName],
-            );
-          });
+        // 3. Persiapan Mapping Data
+        const columns = getTableColumns(table);
 
-          // Force syncStatus true karena ini data dari server
-          return { ...mappedRow, syncStatus: true };
-        });
-
-        // 5. WRITE TO LOCAL DB (I/O Bound - Critical Section)
-        // 🔥 Menggunakan Retry Mechanism untuk menghindari "Database Locked"
+        // 4. Tulis ke Lokal dengan Transaksi Aman
         await runTransactionWithRetry(db, async (tx) => {
-          for (const rowData of preparedRows) {
-            await tx
-              .insert(table)
-              .values(rowData as typeof table.$inferInsert)
-              .onConflictDoUpdate({
-                target: table.id,
-                set: rowData as typeof table.$inferInsert,
-              });
+          for (const row of result.rows) {
+            const insertData: Record<string, unknown> = {};
+            const rawRowObj = row as Record<string, unknown>;
+
+            for (const colDef of Object.values(columns)) {
+              const dbColName = colDef.name;
+              // Cari property key di object 'columns' yang valuenya adalah colDef ini
+              const propName =
+                Object.keys(columns).find(
+                  (k) => columns[k].name === dbColName,
+                ) || dbColName;
+
+              if (rawRowObj[dbColName] !== undefined) {
+                insertData[propName] = normalizeFromCloud(
+                  rawRowObj[dbColName],
+                  colDef,
+                );
+              }
+            }
+
+            insertData.syncStatus = true;
+
+            // Use record type to avoid 'any'
+            const typedInsertData = insertData as Record<
+              string,
+              Record<string, unknown>
+            >[string];
+
+            await tx.insert(table).values(typedInsertData).onConflictDoUpdate({
+              target: table.id,
+              set: typedInsertData,
+            });
           }
         });
 
-        totalUpdatedCount += rows.length;
+        totalUpdated += result.rows.length;
       }
     } catch (error) {
-      console.error(`❌ Sync PULL Error on table [${name}]:`, error);
+      console.error("❌ [SYNC] Pull Failed:", error);
       throw error;
     } finally {
-      client.close();
+      if (client) client.close();
     }
 
-    return { success: true, count: totalUpdatedCount };
+    console.log(`✅ [SYNC] Pull Completed. Total: ${totalUpdated}`);
+    return { success: true, count: totalUpdated };
   },
 };

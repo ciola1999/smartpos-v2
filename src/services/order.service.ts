@@ -15,115 +15,34 @@ class TransactionError extends Error {
 export const OrderService = {
   /**
    * Memproses transaksi penjualan lengkap (Checkout).
-   * - Validasi Stok
-   * - Update Stok (Potong)
-   * - Catat Inventory Log (Sale)
-   * - Simpan Order & Detail (Snapshot Harga)
-   * - Simpan Pembayaran
    */
   async createTransaction(payload: CheckoutPayload, cashierId: string) {
-    const db = getDb(); // 🔥 Ambil koneksi database
-
-    // 1. Ambil ID semua produk yang dibeli
+    const db = getDb();
     const productIds = payload.items.map((item) => item.productId);
 
-    // 2. Mulai Database Transaction (Atomic Operation)
     return await db.transaction(async (tx) => {
-      // A. Fetch Data Produk Terbaru (Jangan percaya harga dari Frontend 100%)
+      // 1. Fetch Data
       const dbProducts = await tx
         .select()
         .from(schema.products)
         .where(inArray(schema.products.id, productIds));
 
-      // Map untuk akses cepat (O(1)) berdasarkan ID
       const productMap = new Map(dbProducts.map((p) => [p.id, p]));
-
-      // B. Validasi Ketersediaan & Hitung Subtotal
-      let calculatedSubtotal = 0;
-      const orderItemsData: (typeof schema.orderItems.$inferInsert)[] = [];
-      const inventoryLogsData: (typeof schema.inventoryLogs.$inferInsert)[] =
-        [];
-      const productsToUpdate: { id: string; newStock: number }[] = [];
-
       const orderId = uuidv7();
 
-      for (const item of payload.items) {
-        const product = productMap.get(item.productId);
+      // 2. Process Items
+      const { orderItemsData, inventoryLogsData, productsToUpdate, subtotal } =
+        this._prepareTransactionData(
+          payload.items,
+          productMap,
+          orderId,
+          cashierId,
+        );
 
-        // 🛡️ Guard: Produk tidak ditemukan
-        if (!product) {
-          throw new TransactionError(
-            `Produk dengan ID ${item.productId} tidak ditemukan.`,
-          );
-        }
-
-        // 🛡️ Guard: Produk non-aktif
-        if (!product.isActive) {
-          throw new TransactionError(
-            `Produk "${product.name}" sedang tidak aktif.`,
-          );
-        }
-
-        // 🛡️ Guard: Stok habis (Kecuali Anda izinkan overselling)
-        if (product.stock < item.quantity) {
-          throw new TransactionError(
-            `Stok "${product.name}" tidak cukup. Sisa: ${product.stock}, Diminta: ${item.quantity}`,
-          );
-        }
-
-        // 💰 Financial: Hitung harga & modal
-        const price = parseFloat(product.price);
-        const _cost = parseFloat(product.costPrice);
-        const lineTotal = price * item.quantity;
-
-        calculatedSubtotal += lineTotal;
-
-        // 📸 Snapshot: Simpan data produk SAAT INI
-        orderItemsData.push({
-          id: uuidv7(),
-          orderId: orderId,
-          productId: product.id,
-          quantity: item.quantity,
-
-          productNameSnapshot: product.name,
-          skuSnapshot: product.sku,
-
-          priceAtTime: product.price, // Harga Jual saat ini
-          costPriceAtTime: product.costPrice, // HPP saat ini (Penting untuk Laba Rugi)
-        });
-
-        // 📦 Inventory Logic: Persiapkan data log & update stok
-        const newStock = product.stock - item.quantity;
-
-        productsToUpdate.push({
-          id: product.id,
-          newStock: newStock,
-        });
-
-        inventoryLogsData.push({
-          id: uuidv7(),
-          productId: product.id,
-          changeAmount: -item.quantity, // Negatif karena barang keluar
-          finalStock: newStock,
-          type: "sale",
-          referenceId: orderId,
-          userId: cashierId,
-
-          // 🔄 SYNC
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          version: 1,
-          syncStatus: false,
-        });
-      }
-
-      // C. Kalkulasi Pajak & Total (Sederhana)
-      // Idealnya ambil rate dari tabel 'taxes'
-      const taxRate = 0.11; // PPN 11%
-      const taxAmount = calculatedSubtotal * taxRate;
-      const totalAmount = calculatedSubtotal + taxAmount;
-
-      // Hitung kembalian
+      // 3. Totals & Tax
+      const taxRate = 0.11;
+      const taxAmount = subtotal * taxRate;
+      const totalAmount = subtotal + taxAmount;
       const paid = parseFloat(payload.amountPaid);
       const change = paid - totalAmount;
 
@@ -133,74 +52,173 @@ export const OrderService = {
         );
       }
 
-      // D. Eksekusi Update Stok (Looping update)
-      // SQLite handle loop update ini dengan sangat cepat dalam transaction
-      for (const p of productsToUpdate) {
-        await tx
-          .update(schema.products)
-          .set({
-            stock: p.newStock,
-            updatedAt: new Date(),
-            version: sql`${schema.products.version} + 1`, // Increment version
-            syncStatus: false, // Dirty
-          })
-          .where(eq(schema.products.id, p.id));
-      }
-
-      // E. Insert Order Header
-      await tx.insert(schema.orders).values({
-        id: orderId,
-        cashierId: cashierId,
-        memberId: payload.memberId,
-        discountId: payload.discountId,
-
-        subtotal: calculatedSubtotal.toString(),
-        taxAmount: taxAmount.toString(),
-        totalAmount: totalAmount.toString(),
-
-        amountPaid: payload.amountPaid,
-        change: change.toString(),
-
-        paymentMethod: payload.paymentMethod,
-        orderType: payload.orderType,
-        tableNumber: payload.tableNumber,
-        status: "completed",
-
-        // Snapshot Tax
-        taxNameSnapshot: "PPN",
-        taxRateSnapshot: taxRate.toString(),
-
-        // 🔄 SYNC
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        version: 1,
-        syncStatus: false,
-      });
-
-      // F. Bulk Insert Detail (Items & Logs)
-      if (orderItemsData.length > 0) {
-        await tx.insert(schema.orderItems).values(orderItemsData);
-      }
-
-      if (inventoryLogsData.length > 0) {
-        await tx.insert(schema.inventoryLogs).values(inventoryLogsData);
-      }
-
-      // G. Insert Payment Record
-      await tx.insert(schema.orderPayments).values({
-        id: uuidv7(),
-        orderId: orderId,
-        paymentMethod: payload.paymentMethod,
-        amount: payload.amountPaid,
-
-        // 🔄 SYNC
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        version: 1,
-        syncStatus: false,
+      // 4. Persistence
+      await this._persistTransaction(tx, {
+        orderId,
+        cashierId,
+        payload,
+        subtotal,
+        taxAmount,
+        totalAmount,
+        change,
+        taxRate,
+        orderItemsData,
+        inventoryLogsData,
+        productsToUpdate,
       });
 
       return { success: true, orderId, totalAmount, change };
+    });
+  },
+
+  /**
+   * 🛠️ Internal: Mempersiapkan data untuk transaksi (Validasi & Kalkulasi)
+   */
+  _prepareTransactionData(
+    items: CheckoutPayload["items"],
+    productMap: Map<string, typeof schema.products.$inferSelect>,
+    orderId: string,
+    cashierId: string,
+  ) {
+    let subtotal = 0;
+    const orderItemsData: (typeof schema.orderItems.$inferInsert)[] = [];
+    const inventoryLogsData: (typeof schema.inventoryLogs.$inferInsert)[] = [];
+    const productsToUpdate: { id: string; newStock: number }[] = [];
+
+    for (const item of items) {
+      const product = productMap.get(item.productId);
+      if (!product) {
+        throw new TransactionError(`Produk ID ${item.productId} tidak ada.`);
+      }
+      if (!product.isActive) {
+        throw new TransactionError(`Produk "${product.name}" tidak aktif.`);
+      }
+      if (product.stock < item.quantity) {
+        throw new TransactionError(
+          `Stok "${product.name}" kurang. Sisa: ${product.stock}`,
+        );
+      }
+
+      const price = parseFloat(product.price);
+      subtotal += price * item.quantity;
+      const newStock = product.stock - item.quantity;
+
+      orderItemsData.push({
+        id: uuidv7(),
+        orderId,
+        productId: product.id,
+        quantity: item.quantity,
+        productNameSnapshot: product.name,
+        skuSnapshot: product.sku,
+        priceAtTime: product.price,
+        costPriceAtTime: product.costPrice,
+      });
+
+      productsToUpdate.push({ id: product.id, newStock });
+
+      inventoryLogsData.push({
+        id: uuidv7(),
+        productId: product.id,
+        changeAmount: -item.quantity,
+        finalStock: newStock,
+        type: "sale" as const,
+        referenceId: orderId,
+        userId: cashierId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        version: 1,
+        syncStatus: false,
+      });
+    }
+
+    return { orderItemsData, inventoryLogsData, productsToUpdate, subtotal };
+  },
+
+  /**
+   * 🛠️ Internal: Eksekusi penulisan ke database
+   */
+  async _persistTransaction(
+    tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0],
+    data: {
+      orderId: string;
+      cashierId: string;
+      payload: CheckoutPayload;
+      subtotal: number;
+      taxAmount: number;
+      totalAmount: number;
+      change: number;
+      taxRate: number;
+      orderItemsData: (typeof schema.orderItems.$inferInsert)[];
+      inventoryLogsData: (typeof schema.inventoryLogs.$inferInsert)[];
+      productsToUpdate: { id: string; newStock: number }[];
+    },
+  ) {
+    const {
+      orderId,
+      cashierId,
+      payload,
+      subtotal,
+      taxAmount,
+      totalAmount,
+      change,
+      taxRate,
+      orderItemsData,
+      inventoryLogsData,
+      productsToUpdate,
+    } = data;
+
+    // A. Update Stok
+    for (const p of productsToUpdate) {
+      await tx
+        .update(schema.products)
+        .set({
+          stock: p.newStock,
+          updatedAt: new Date(),
+          version: sql`${schema.products.version} + 1`,
+          syncStatus: false,
+        })
+        .where(eq(schema.products.id, p.id));
+    }
+
+    // B. Insert Order
+    await tx.insert(schema.orders).values({
+      id: orderId,
+      cashierId,
+      memberId: payload.memberId,
+      discountId: payload.discountId,
+      subtotal: subtotal.toString(),
+      taxAmount: taxAmount.toString(),
+      totalAmount: totalAmount.toString(),
+      amountPaid: payload.amountPaid,
+      change: change.toString(),
+      paymentMethod: payload.paymentMethod,
+      orderType: payload.orderType,
+      tableNumber: payload.tableNumber,
+      status: "completed",
+      taxNameSnapshot: "PPN",
+      taxRateSnapshot: taxRate.toString(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      version: 1,
+      syncStatus: false,
+    });
+
+    // C. Bulk Inserts
+    if (orderItemsData.length > 0)
+      await tx.insert(schema.orderItems).values(orderItemsData);
+    if (inventoryLogsData.length > 0)
+      await tx.insert(schema.inventoryLogs).values(inventoryLogsData);
+
+    // D. Payment Record
+    await tx.insert(schema.orderPayments).values({
+      id: uuidv7(),
+      orderId,
+      paymentMethod: payload.paymentMethod,
+      amount: payload.amountPaid,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      version: 1,
+      syncStatus: false,
     });
   },
 };

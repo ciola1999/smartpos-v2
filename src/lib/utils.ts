@@ -16,3 +16,12 @@ export function isTauri(): boolean {
     typeof window.__TAURI_INTERNALS__ !== "undefined"
   );
 }
+
+export function formatRupiah(amount: number) {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6da10ab0-5c8f-409c-bc5c-032506d73d14",
+  "id": "4cb1d196-ea06-4996-b903-b512f0fac3a9",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "categories": {
@@ -82,6 +82,13 @@
             "slug"
           ],
           "isUnique": true
+        },
+        "categories_slug_idx": {
+          "name": "categories_slug_idx",
+          "columns": [
+            "slug"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -1400,6 +1407,13 @@
             "is_active"
           ],
           "isUnique": false
+        },
+        "product_barcode_idx": {
+          "name": "product_barcode_idx",
+          "columns": [
+            "barcode"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -1793,6 +1807,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "password": {
           "name": "password",
           "type": "text",
@@ -1871,6 +1892,20 @@
             "username"
           ],
           "isUnique": true
+        },
+        "users_email_unique": {
+          "name": "users_email_unique",
+          "columns": [
+            "email"
+          ],
+          "isUnique": true
+        },
+        "users_username_idx": {
+          "name": "users_username_idx",
+          "columns": [
+            "username"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},

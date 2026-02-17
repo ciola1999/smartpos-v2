@@ -8,6 +8,7 @@
         "@hookform/resolvers": "^5.2.2",
         "@libsql/client": "^0.17.0",
         "@tailwindcss/postcss": "^4.1.18",
+        "@tanstack/react-query": "^5.90.21",
         "@tauri-apps/plugin-sql": "^2.3.2",
         "@types/bcryptjs": "^3.0.0",
         "@types/uuid": "^11.0.0",
@@ -16,6 +17,7 @@
         "clsx": "^2.1.1",
         "date-fns": "^4.1.0",
         "decimal.js": "^10.6.0",
+        "dotenv": "^17.3.1",
         "drizzle-orm": "^0.45.1",
         "drizzle-zod": "^0.8.3",
         "framer-motion": "^12.34.0",
@@ -319,6 +321,10 @@
 
     "@tailwindcss/postcss": ["@tailwindcss/postcss@4.1.18", "", { "dependencies": { "@alloc/quick-lru": "^5.2.0", "@tailwindcss/node": "4.1.18", "@tailwindcss/oxide": "4.1.18", "postcss": "^8.4.41", "tailwindcss": "4.1.18" } }, "sha512-Ce0GFnzAOuPyfV5SxjXGn0CubwGcuDB0zcdaPuCSzAa/2vII24JTkH+I6jcbXLb1ctjZMZZI6OjDaLPJQL1S0g=="],
 
+    "@tanstack/query-core": ["@tanstack/query-core@5.90.20", "", {}, "sha512-OMD2HLpNouXEfZJWcKeVKUgQ5n+n3A2JFmBaScpNDUqSrQSjiveC7dKMe53uJUg1nDG16ttFPz2xfilz6i2uVg=="],
+
+    "@tanstack/react-query": ["@tanstack/react-query@5.90.21", "", { "dependencies": { "@tanstack/query-core": "5.90.20" }, "peerDependencies": { "react": "^18 || ^19" } }, "sha512-0Lu6y5t+tvlTJMTO7oh5NSpJfpg/5D41LlThfepTixPYkJ0sE2Jj0m0f6yYqujBwIXlId87e234+MxG3D3g7kg=="],
+
     "@tauri-apps/api": ["@tauri-apps/api@2.10.1", "", {}, "sha512-hKL/jWf293UDSUN09rR69hrToyIXBb8CjGaWC7gfinvnQrBVvnLr08FeFi38gxtugAVyVcTa5/FD/Xnkb1siBw=="],
 
     "@tauri-apps/cli": ["@tauri-apps/cli@2.10.0", "", { "optionalDependencies": { "@tauri-apps/cli-darwin-arm64": "2.10.0", "@tauri-apps/cli-darwin-x64": "2.10.0", "@tauri-apps/cli-linux-arm-gnueabihf": "2.10.0", "@tauri-apps/cli-linux-arm64-gnu": "2.10.0", "@tauri-apps/cli-linux-arm64-musl": "2.10.0", "@tauri-apps/cli-linux-riscv64-gnu": "2.10.0", "@tauri-apps/cli-linux-x64-gnu": "2.10.0", "@tauri-apps/cli-linux-x64-musl": "2.10.0", "@tauri-apps/cli-win32-arm64-msvc": "2.10.0", "@tauri-apps/cli-win32-ia32-msvc": "2.10.0", "@tauri-apps/cli-win32-x64-msvc": "2.10.0" }, "bin": { "tauri": "tauri.js" } }, "sha512-ZwT0T+7bw4+DPCSWzmviwq5XbXlM0cNoleDKOYPFYqcZqeKY31KlpoMW/MOON/tOFBPgi31a2v3w9gliqwL2+Q=="],
@@ -396,6 +402,8 @@
     "detect-libc": ["detect-libc@2.0.2", "", {}, "sha512-UX6sGumvvqSaXgdKGUsgZWqcUyIXZ/vZTrlRT/iobiKhGL0zL4d3osHj3uqllWJK+i+sixDS/3COVEOFbupFyw=="],
 
     "detect-node-es": ["detect-node-es@1.1.0", "", {}, "sha512-ypdmJU/TbBby2Dxibuv7ZLW3Bs1QEmM7nHjEANfohJLvE0XVujisn1qPJcZxg+qDucsr+bP6fLD1rPS3AhJ7EQ=="],
+
+    "dotenv": ["dotenv@17.3.1", "", {}, "sha512-IO8C/dzEb6O3F9/twg6ZLXz164a2fhTnEWb95H23Dm4OuN+92NmEAlTrupP9VW6Jm3sO26tQlqyvyi4CsnY9GA=="],
 
     "drizzle-kit": ["drizzle-kit@0.31.9", "", { "dependencies": { "@drizzle-team/brocli": "^0.10.2", "@esbuild-kit/esm-loader": "^2.5.5", "esbuild": "^0.25.4", "esbuild-register": "^3.5.0" }, "bin": { "drizzle-kit": "bin.cjs" } }, "sha512-GViD3IgsXn7trFyBUUHyTFBpH/FsHTxYJ66qdbVggxef4UBPHRYxQaRzYLTuekYnk9i5FIEL9pbBIwMqX/Uwrg=="],
 

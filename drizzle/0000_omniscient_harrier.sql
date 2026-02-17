@@ -11,6 +11,7 @@ CREATE TABLE `categories` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `categories_slug_unique` ON `categories` (`slug`);--> statement-breakpoint
+CREATE INDEX `categories_slug_idx` ON `categories` (`slug`);--> statement-breakpoint
 CREATE TABLE `discounts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`code` text NOT NULL,
@@ -194,6 +195,7 @@ CREATE UNIQUE INDEX `products_sku_unique` ON `products` (`sku`);--> statement-br
 CREATE INDEX `product_name_idx` ON `products` (`name`);--> statement-breakpoint
 CREATE INDEX `product_category_idx` ON `products` (`category_id`);--> statement-breakpoint
 CREATE INDEX `product_active_idx` ON `products` (`is_active`);--> statement-breakpoint
+CREATE INDEX `product_barcode_idx` ON `products` (`barcode`);--> statement-breakpoint
 CREATE TABLE `shifts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`cashier_id` text NOT NULL,
@@ -249,6 +251,7 @@ CREATE TABLE `users` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`username` text NOT NULL,
+	`email` text,
 	`password` text NOT NULL,
 	`role` text DEFAULT 'cashier' NOT NULL,
 	`avatar_url` text DEFAULT '',
@@ -260,4 +263,6 @@ CREATE TABLE `users` (
 	`sync_status` integer DEFAULT false NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `users_username_unique` ON `users` (`username`);
+CREATE UNIQUE INDEX `users_username_unique` ON `users` (`username`);--> statement-breakpoint
+CREATE UNIQUE INDEX `users_email_unique` ON `users` (`email`);--> statement-breakpoint
+CREATE INDEX `users_username_idx` ON `users` (`username`);

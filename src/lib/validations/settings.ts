@@ -22,10 +22,18 @@ export type StoreProfileValues = z.infer<typeof storeProfileSchema>;
 
 // --- VALIDASI KONEKSI CLOUD ---
 export const cloudConfigSchema = z.object({
-  dbUrl: z
-    .string()
-    .url("URL Database tidak valid (harus starts with libsql:// or https://)"),
-  authToken: z.string().min(10, "Token terlalu pendek"),
+  cloudUrl: z.union([
+    z.literal(""),
+    z
+      .string()
+      .url(
+        "URL Database tidak valid (harus starts with libsql:// or https://)",
+      ),
+  ]),
+  cloudKey: z.union([
+    z.literal(""),
+    z.string().min(10, "Token terlalu pendek"),
+  ]),
 });
 
 export type CloudConfigValues = z.infer<typeof cloudConfigSchema>;

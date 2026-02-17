@@ -24,27 +24,40 @@ export function useStoreSettings() {
   });
 
   useEffect(() => {
+    let isMounted = true;
+    const applySettings = (
+      settings: NonNullable<
+        Awaited<ReturnType<typeof StoreService.getSettings>>
+      >,
+    ) => {
+      if (!isMounted) return;
+      form.reset({
+        name: settings.name ?? "",
+        address: settings.address ?? "",
+        phone: settings.phone ?? "",
+        email: settings.email ?? "",
+        currency: settings.currency ?? "IDR",
+      });
+    };
+
     async function loadSettings() {
       try {
         const settings = await StoreService.getSettings();
         if (settings) {
-          form.reset({
-            name: settings.name ?? "",
-            address: settings.address ?? "",
-            phone: settings.phone ?? "",
-            email: settings.email ?? "",
-            currency: settings.currency ?? "IDR",
-          });
+          applySettings(settings);
         }
       } catch (error) {
         console.error("Failed to load store settings", error);
         toast.error("Gagal mengambil data toko");
       } finally {
-        setIsLoading(false);
+        if (isMounted) setIsLoading(false);
       }
     }
     loadSettings();
-  }, [form]);
+    return () => {
+      isMounted = false;
+    };
+  }, [form.reset]);
 
   const onSubmit: SubmitHandler<StoreProfileValues> = async (values) => {
     startTransition(async () => {
