@@ -1,61 +1,198 @@
-import { PackageOpen, Plus } from "lucide-react";
-import type { Product } from "@/db/schema";
-import { cn, formatRupiah } from "@/lib/utils";
+import { AlertCircle, Package, Plus } from "lucide-react";
+import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type * as schema from "@/db/schema";
+import { formatRupiah } from "@/lib/utils/currency";
+
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
+
+// Menggabungkan tipe Produk dengan Array Varian (Relation)
+type ProductWithVariants = typeof schema.products.$inferSelect & {
+  variants: (typeof schema.productVariants.$inferSelect)[];
+};
 
 interface ProductCardProps {
-  product: Product;
-  onClick: () => void;
+  product: ProductWithVariants;
+  onAddToCart: (p: ProductWithVariants, variantId?: string) => void;
 }
 
-export function ProductCard({ product, onClick }: ProductCardProps) {
-  const isOutOfStock = product.stock <= 0;
+// ============================================================================
+// HELPER LOGIC (SAFE PARSING)
+// ============================================================================
+
+/**
+ * Mengubah JSON attributes menjadi string label yang user-friendly.
+ * Contoh DB: '{"Warna": "Merah", "Ukuran": "L"}' -> Output: "Merah / L"
+ * Jika gagal parse/kosong, fallback ke SKU.
+ */
+function getVariantLabel(
+  variant: typeof schema.productVariants.$inferSelect,
+): string {
+  if (!variant.attributes) return variant.sku; // Fallback ke SKU jika tidak ada atribut
+
+  try {
+    const attrs = JSON.parse(variant.attributes);
+    // Mengambil values dari object JSON dan menggabungkannya
+    const label = Object.values(attrs).join(" / ");
+    return label || variant.sku;
+  } catch (_e) {
+    return variant.sku; // Fallback jika JSON invalid
+  }
+}
+
+// ============================================================================
+// COMPONENT IMPLEMENTATION
+// ============================================================================
+
+export function ProductCard({ product, onAddToCart }: ProductCardProps) {
+  const [isVariantOpen, setIsVariantOpen] = useState(false);
+  const hasVariants = product.variants.length > 0;
+
+  // Base Price (Parse dari string ke float karena SQLite menyimpan Decimal sebagai Text)
+  const basePrice = parseFloat(product.price || "0");
+
+  // Handler Klik Utama
+  const handleMainClick = () => {
+    // Jika tidak ada stok dan trackInventory aktif -> Jangan lakukan apa-apa (opsional: toast)
+    // Tapi di UI list, sebaiknya tombolnya disabled.
+
+    if (hasVariants) {
+      setIsVariantOpen(true);
+    } else {
+      onAddToCart(product);
+    }
+  };
+
+  // Handler Pilih Varian
+  const handleVariantSelect = (variantId: string) => {
+    onAddToCart(product, variantId);
+    setIsVariantOpen(false);
+  };
+
+  // Cek Stok Utama (Simple Product)
+  // Note: Schema 'products' tidak punya kolom stock, asumsi unlimited atau validasi BE.
+  // Jika nanti ada kolom stock di products, tambahkan: const isOutOfStock = product.trackInventory && product.stock <= 0;
+  const isOutOfStock = false;
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={isOutOfStock}
-      className={cn(
-        "group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-border bg-card p-5 text-left transition-all duration-300 hover:border-primary/50 hover:shadow-2xl hover:shadow-primary/10 active:scale-[0.98]",
-        isOutOfStock && "cursor-not-allowed opacity-60 grayscale",
-      )}
-    >
-      {/* Visual Accent */}
-      <div className="absolute top-0 right-0 -mr-4 -mt-4 h-16 w-16 rounded-full bg-primary/5 group-hover:bg-primary/10 transition-colors" />
-
-      {/* Stock Badge */}
-      <div
-        className={cn(
-          "absolute top-3 right-3 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider",
-          isOutOfStock
-            ? "bg-destructive/10 text-destructive"
-            : "bg-emerald-500/10 text-emerald-500",
-        )}
+    <>
+      <Card
+        className={`flex flex-col justify-between overflow-hidden transition-all h-full
+          ${isOutOfStock ? "opacity-60 grayscale cursor-not-allowed" : "cursor-pointer hover:border-primary active:scale-95"}
+        `}
+        onClick={!isOutOfStock ? handleMainClick : undefined}
       >
-        {isOutOfStock ? "Habis" : `${product.stock} Tersedia`}
-      </div>
+        <CardContent className="p-4 pt-6 flex-1">
+          {/* Header: Icon & Badge */}
+          <div className="flex justify-between items-start mb-3">
+            <div className="h-10 w-10 bg-muted/50 rounded-lg flex items-center justify-center text-muted-foreground">
+              <Package size={20} />
+            </div>
+            {hasVariants && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 h-5">
+                {product.variants.length} Opsi
+              </Badge>
+            )}
+          </div>
 
-      {/* Icon Wrapper */}
-      <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted text-muted-foreground group-hover:bg-primary group-hover:text-primary-foreground group-hover:shadow-lg group-hover:shadow-primary/20 transition-all duration-300">
-        <PackageOpen size={28} strokeWidth={1.5} />
-      </div>
+          {/* Product Info */}
+          <h3
+            className="font-semibold text-sm line-clamp-2 leading-snug mb-1"
+            title={product.name}
+          >
+            {product.name}
+          </h3>
+          <p className="text-xs text-muted-foreground truncate">
+            {product.sku}
+          </p>
+        </CardContent>
 
-      {/* Info Section */}
-      <div className="space-y-1">
-        <h3 className="line-clamp-2 text-sm font-semibold text-foreground group-hover:text-primary transition-colors duration-300">
-          {product.name}
-        </h3>
-        <p className="font-mono text-lg font-black tracking-tighter text-foreground">
-          {formatRupiah(Number(product.price))}
-        </p>
-      </div>
+        {/* Footer: Price & Action */}
+        <CardFooter className="p-4 pt-0 flex justify-between items-center bg-muted/10 border-t mt-auto min-h-[50px]">
+          <div className="font-bold text-primary text-sm">
+            {formatRupiah(basePrice)}
+          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 rounded-full hover:bg-primary hover:text-primary-foreground"
+            disabled={isOutOfStock}
+          >
+            {isOutOfStock ? <AlertCircle size={16} /> : <Plus size={16} />}
+          </Button>
+        </CardFooter>
+      </Card>
 
-      {/* Add Indicator */}
-      <div className="absolute bottom-4 right-4 translate-y-8 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300">
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg">
-          <Plus size={18} />
-        </div>
-      </div>
-    </button>
+      {/* ======================= */}
+      {/* DIALOG PILIH VARIAN     */}
+      {/* ======================= */}
+      <Dialog open={isVariantOpen} onOpenChange={setIsVariantOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>{product.name}</DialogTitle>
+            <DialogDescription>Pilih varian yang tersedia</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-2 mt-2 max-h-[60vh] overflow-y-auto pr-1">
+            {product.variants.map((variant) => {
+              // Logic Stok Varian
+              const variantStock = variant.stock ?? 0;
+              const isVariantEmpty =
+                product.trackInventory && variantStock <= 0;
+              const variantPrice =
+                basePrice + parseFloat(variant.priceAdjustment || "0");
+              const label = getVariantLabel(variant);
+
+              return (
+                <Button
+                  key={variant.id}
+                  variant="outline"
+                  className={`justify-between h-auto py-3 px-4 ${
+                    isVariantEmpty
+                      ? "opacity-50 cursor-not-allowed bg-muted"
+                      : "hover:border-primary"
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!isVariantEmpty) handleVariantSelect(variant.id);
+                  }}
+                  disabled={isVariantEmpty}
+                >
+                  <div className="flex flex-col items-start gap-0.5 text-left">
+                    <span className="font-medium text-sm">{label}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      SKU: {variant.sku} • Stok:{" "}
+                      {product.trackInventory ? variantStock : "∞"}
+                    </span>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="font-bold text-sm">
+                      {formatRupiah(variantPrice)}
+                    </div>
+                    {isVariantEmpty && (
+                      <span className="text-[10px] text-red-500 font-medium">
+                        Habis
+                      </span>
+                    )}
+                  </div>
+                </Button>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

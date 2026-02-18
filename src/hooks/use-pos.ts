@@ -1,159 +1,373 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { and, eq, isNull } from "drizzle-orm";
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { v7 as uuidv7 } from "uuid";
+
 import * as schema from "@/db/schema";
 import { getDb } from "@/lib/db";
+import { createOrderSchema } from "@/lib/validations/order";
+import {
+  type CreateOrderPayload,
+  OrderService,
+} from "@/services/order.service";
 
-// --- TYPES ---
-export type CartItem = {
-  product: schema.Product;
-  quantity: number;
-  note?: string;
+// ============================================================================
+// 1. TYPE DEFINITIONS
+// ============================================================================
+
+// Tipe Data Product lengkap dengan Varian (Join Result)
+type ProductWithVariants = typeof schema.products.$inferSelect & {
+  variants: (typeof schema.productVariants.$inferSelect)[];
 };
 
-export type POSTransactionStatus = "idle" | "processing" | "success" | "error";
+// Item dalam Keranjang (Frontend State)
+export type CartItem = {
+  rowId: string; // ID Unik untuk Key React (UUID v7)
+  productId: string;
+  variantId?: string | null;
+  batchId?: string | null;
 
-// --- HOOK ---
-export function usePOS() {
+  // Snapshot Data untuk Tampilan UI
+  name: string;
+  sku: string;
+  price: number; // Harga Jual Satuan (Base + Variant Adj)
+  costPrice: number; // HPP (untuk estimasi margin di UI jika perlu)
+
+  // Mutable User Input
+  quantity: number;
+  discount: number; // Nominal Diskon per item (sesuai schema orderItems)
+  note?: string; // Catatan per item (sesuai schema orderItems)
+
+  // Validation Helpers
+  maxStock: number; // Batas stok saat ini
+  trackInventory: boolean;
+};
+
+// Ringkasan Kalkulasi Keuangan
+export type CartSummary = {
+  subtotal: number; // Total Harga Barang (Qty * Price)
+  totalDiscount: number; // Total Diskon Item
+  taxAmount: number; // Pajak (PPN)
+  grandTotal: number; // Yang harus dibayar
+  totalItems: number; // Jumlah pcs barang
+};
+
+// Parameter Checkout
+export type CheckoutParams = {
+  paymentMethod: "cash" | "debit" | "credit" | "qris" | "transfer" | "split";
+  amountPaid: number;
+  orderType: "dine_in" | "take_away" | "delivery";
+  tableNumber?: string; // Opsional sesuai schema
+  note?: string; // Catatan global order
+};
+
+// ============================================================================
+// 2. HOOK IMPLEMENTATION
+// ============================================================================
+
+export function usePOS(
+  branchId: string,
+  warehouseId: string,
+  cashierId: string,
+) {
   const queryClient = useQueryClient();
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [globalDiscount, setGlobalDiscount] = useState<number>(0);
-  const [selectedTaxRate, setSelectedTaxRate] = useState<number>(11); // PPN 11% default
-  const [transactionStatus, setTransactionStatus] =
-    useState<POSTransactionStatus>("idle");
+  const [transactionStatus, setTransactionStatus] = useState<
+    "idle" | "processing" | "success" | "error"
+  >("idle");
 
-  // 1. FETCH PRODUCTS & CURRENT USER
+  // --------------------------------------------------------------------------
+  // A. DATA FETCHING (Local-First / Eager Load)
+  // --------------------------------------------------------------------------
+
   const { data: products = [], isLoading: isLoadingProducts } = useQuery({
-    queryKey: ["products"],
+    queryKey: ["pos-products", branchId],
     queryFn: async () => {
-      const db = getDb();
-      return await db
-        .select()
-        .from(schema.products)
-        .where(
-          and(
-            eq(schema.products.isActive, true),
-            isNull(schema.products.deletedAt),
-          ),
-        );
+      // Fetch Produk & Varian.
+      // Note: Di sistem besar, filter by branchId jika produk berbeda tiap cabang.
+      return await getDb().query.products.findMany({
+        where: and(
+          eq(schema.products.isActive, true),
+          isNull(schema.products.deletedAt),
+        ),
+        with: {
+          variants: true, // Eager load varian untuk seleksi cepat
+        },
+      });
     },
   });
 
-  const { data: currentUser } = useQuery({
-    queryKey: ["current-user"],
-    queryFn: async () => {
-      const db = getDb();
-      const result = await db.select().from(schema.users).limit(1);
-      return result[0] || null;
-    },
-  });
+  // --------------------------------------------------------------------------
+  // B. CART ACTIONS (Logic Powerful & Type-Safe)
+  // --------------------------------------------------------------------------
 
-  // 2. CALCULATIONS (React Compiler handles memoization automatically)
-  const subtotal = cart.reduce((acc, item) => {
-    const price = Number(item.product.price);
-    return acc + price * item.quantity;
-  }, 0);
+  /**
+   * 1. Add Item: Menangani Product Simple & Variant
+   * Logika: Cek apakah item (Product + Variant + Batch) sudah ada di cart?
+   * Jika ya -> Tambah Qty. Jika tidak -> Buat Baris Baru.
+   */
+  const addToCart = useCallback(
+    (
+      product: ProductWithVariants,
+      variantId?: string | null,
+      batchId?: string | null,
+    ) => {
+      setCart((prev) => {
+        // Setup Initial Values
+        let targetPrice = parseFloat(product.price || "0");
+        let targetName = product.name;
+        let targetSku = product.sku;
+        let maxStock = 999999; // Default unlimited
 
-  const discountAmount = (subtotal * globalDiscount) / 100;
-  const taxableAmount = subtotal - discountAmount;
-  const taxAmount = (taxableAmount * selectedTaxRate) / 100;
-  const grandTotal = Math.max(0, Math.round(taxableAmount + taxAmount));
-  const totalItems = cart.reduce((acc, item) => acc + item.quantity, 0);
+        // Handle Variant Logic
+        if (variantId) {
+          const variant = product.variants.find((v) => v.id === variantId);
+          if (!variant) {
+            toast.error("Varian data mismatch!");
+            return prev;
+          }
 
-  // 3. ACTIONS
-  const addToCart = (product: schema.Product) => {
-    setCart((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      const currentQty = existing ? existing.quantity : 0;
+          targetName = `${product.name} - ${variant.sku}`; // UI Friendly Name
+          targetSku = variant.sku;
+          targetPrice += parseFloat(variant.priceAdjustment || "0"); // Adjust Price
 
-      if (currentQty + 1 > product.stock) return prev;
+          if (product.trackInventory && variant.stock !== null) {
+            maxStock = variant.stock;
+          }
+        }
+        // Handle Simple Product Logic (jika tanpa varian)
+        else {
+          // Karena schema 'products' tidak punya kolom stock, kita asumsikan
+          // validasi stok simple product dilakukan via Batch atau dilepas (unlimited)
+          // kecuali ada query stockMovements terpisah.
+        }
 
-      if (existing) {
-        return prev.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item,
+        // Cek Duplikasi di Cart (Matching Product + Variant + Batch)
+        const existingIdx = prev.findIndex(
+          (item) =>
+            item.productId === product.id &&
+            item.variantId === variantId &&
+            item.batchId === batchId,
         );
-      }
-      return [...prev, { product, quantity: 1 }];
-    });
-  };
 
-  const removeFromCart = (productId: string, removeAll = false) => {
+        // Logic Update atau Insert
+        if (existingIdx >= 0) {
+          const existingItem = prev[existingIdx];
+          if (product.trackInventory && existingItem.quantity + 1 > maxStock) {
+            toast.warning(`Stok terbatas! Sisa: ${maxStock}`);
+            return prev;
+          }
+
+          const newCart = [...prev];
+          newCart[existingIdx] = {
+            ...existingItem,
+            quantity: existingItem.quantity + 1,
+          };
+          return newCart;
+        } else {
+          if (product.trackInventory && maxStock < 1) {
+            toast.warning("Stok habis!");
+            return prev;
+          }
+
+          return [
+            ...prev,
+            {
+              rowId: uuidv7(),
+              productId: product.id,
+              variantId: variantId || null,
+              batchId: batchId || null,
+              name: targetName,
+              sku: targetSku,
+              price: targetPrice,
+              costPrice: parseFloat(product.costPrice || "0"),
+              quantity: 1,
+              discount: 0,
+              note: "",
+              maxStock,
+              trackInventory: product.trackInventory ?? true,
+            },
+          ];
+        }
+      });
+    },
+    [],
+  );
+
+  /**
+   * 2. Update Quantity
+   * Menjaga agar tidak minus dan tidak melebihi stok.
+   */
+  const updateQuantity = useCallback((rowId: string, delta: number) => {
     setCart((prev) => {
-      if (removeAll)
-        return prev.filter((item) => item.product.id !== productId);
       return prev
-        .map((item) =>
-          item.product.id === productId
-            ? { ...item, quantity: item.quantity - 1 }
-            : item,
-        )
-        .filter((item) => item.quantity > 0);
+        .map((item) => {
+          if (item.rowId !== rowId) return item;
+
+          const newQty = item.quantity + delta;
+
+          // Validasi Stok (Client Side)
+          if (item.trackInventory && delta > 0 && newQty > item.maxStock) {
+            toast.warning(`Mencapai batas stok (${item.maxStock})`);
+            return item;
+          }
+
+          return { ...item, quantity: newQty };
+        })
+        .filter((item) => item.quantity > 0); // Auto remove jika 0
     });
-  };
+  }, []);
 
-  const clearCart = () => {
+  /**
+   * 3. Update Item Details (Diskon & Note) - NEW FEATURE
+   * Penting untuk memanfaatkan kolom 'discount' dan 'note' di schema orderItems
+   */
+  const updateItem = useCallback(
+    (rowId: string, updates: Partial<Pick<CartItem, "discount" | "note">>) => {
+      setCart((prev) =>
+        prev.map((item) => {
+          if (item.rowId !== rowId) return item;
+          return { ...item, ...updates };
+        }),
+      );
+    },
+    [],
+  );
+
+  /**
+   * 4. Remove Item Explicitly
+   */
+  const removeItem = useCallback((rowId: string) => {
+    setCart((prev) => prev.filter((item) => item.rowId !== rowId));
+  }, []);
+
+  /**
+   * 5. Clear Cart
+   */
+  const clearCart = useCallback(() => {
     setCart([]);
-    setGlobalDiscount(0);
     setTransactionStatus("idle");
-  };
+  }, []);
 
-  // 4. CHECKOUT PROCESS
+  // --------------------------------------------------------------------------
+  // C. CALCULATIONS (Memoized for Performance)
+  // --------------------------------------------------------------------------
+
+  const summary: CartSummary = useMemo(() => {
+    const subtotal = cart.reduce(
+      (acc, item) => acc + item.price * item.quantity,
+      0,
+    );
+    const totalDiscount = cart.reduce((acc, item) => acc + item.discount, 0); // Total diskon nominal
+
+    // Pajak (Placeholder Logic: Bisa ambil dari StoreSetting nanti)
+    const taxRate = 0;
+    // Tax biasanya dikenakan setelah diskon: (Subtotal - Diskon) * Rate
+    const taxableAmount = Math.max(0, subtotal - totalDiscount);
+    const taxAmount = taxableAmount * taxRate;
+
+    const grandTotal = Math.max(0, taxableAmount + taxAmount);
+    const totalItems = cart.reduce((acc, item) => acc + item.quantity, 0);
+
+    return { subtotal, totalDiscount, taxAmount, grandTotal, totalItems };
+  }, [cart]);
+
+  // --------------------------------------------------------------------------
+  // D. CHECKOUT PROCESS (Transaction)
+  // --------------------------------------------------------------------------
+
   const checkoutMutation = useMutation({
-    mutationFn: async (params: {
-      paymentMethod: "cash" | "qris" | "debit" | "split";
-      amountPaid: number;
-    }) => {
-      if (cart.length === 0) throw new Error("Keranjang kosong");
-      if (!currentUser) throw new Error("Sesi kasir tidak valid");
+    mutationFn: async (params: CheckoutParams) => {
+      // 1. Validasi Awal State
+      if (cart.length === 0) throw new Error("Keranjang kosong!");
+      if (!branchId || !warehouseId || !cashierId)
+        throw new Error("Sesi kasir tidak valid (Missing ID).");
 
-      const { OrderService } = await import("@/services/order.service");
+      // 2. Mapping ke Payload Service (Type-Safe)
+      const payload: CreateOrderPayload = {
+        branchId,
+        warehouseId,
+        cashierId,
+        memberId: null, // Bisa dikembangkan untuk member
 
-      const payload = {
+        type: params.orderType,
+        tableNumber: params.tableNumber,
+        note: params.note,
+
         items: cart.map((item) => ({
-          productId: item.product.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          batchId: item.batchId,
           quantity: item.quantity,
-          price: Number(item.product.price),
+          discount: item.discount, // Mengirim nominal diskon per item
+          note: item.note, // Mengirim catatan per item
         })),
-        paymentMethod: params.paymentMethod,
-        amountPaid: params.amountPaid.toString(),
-        orderType: "dine_in" as const,
-        memberId: null,
-        discountId: null,
+
+        payments: [
+          {
+            method: params.paymentMethod,
+            amount: params.amountPaid,
+            referenceId: undefined, // Bisa diisi jika ada No Ref EDC
+          },
+        ],
       };
 
-      return await OrderService.createTransaction(payload, currentUser.id);
+      // 3. Validasi Zod (Safety Net sebelum kirim ke DB)
+      //    Ini akan menangkap error jika format data salah
+      const validation = createOrderSchema.safeParse(payload);
+      if (!validation.success) {
+        const errorMsg = validation.error.issues
+          .map((i) => i.message)
+          .join(", ");
+        throw new Error(`Validasi Data Gagal: ${errorMsg}`);
+      }
+
+      // 4. Eksekusi Service
+      return await OrderService.createTransaction(payload);
     },
+
     onMutate: () => setTransactionStatus("processing"),
-    onSuccess: () => {
+
+    onSuccess: (data) => {
       setTransactionStatus("success");
+      toast.success(`Transaksi Berhasil!`, {
+        description: `Order #${data.orderNumber} disimpan.`,
+      });
       clearCart();
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+
+      // Invalidate query agar stok produk ter-update di list
+      queryClient.invalidateQueries({ queryKey: ["pos-products"] });
+
+      // TODO: Trigger Print Struk via Tauri Command di sini
     },
-    onError: (error) => {
+
+    onError: (error: Error) => {
       setTransactionStatus("error");
-      console.error("Checkout Failed:", error);
+      toast.error("Transaksi Gagal", {
+        description: error.message,
+      });
+      console.error("POS Error:", error);
     },
   });
 
   return {
+    // Data State
     products,
     isLoadingProducts,
     cart,
-    subtotal,
-    taxAmount,
-    discountAmount,
-    grandTotal,
-    totalItems,
-    setGlobalDiscount,
-    setSelectedTaxRate,
-    addToCart,
-    removeFromCart,
-    clearCart,
-    processCheckout: checkoutMutation.mutateAsync,
-    isCheckingOut: checkoutMutation.isPending,
+    summary,
     transactionStatus,
-    currentUser,
+
+    // Actions
+    addToCart,
+    updateQuantity,
+    updateItem, // NEW: Untuk edit diskon/note
+    removeItem,
+    clearCart,
+
+    // Checkout
+    processCheckout: checkoutMutation.mutate,
+    isProcessing: checkoutMutation.isPending,
   };
 }
