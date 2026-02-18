@@ -53,16 +53,19 @@ export const runSystemSetup = async () => {
       console.log("📦 [SETUP] Seeding Default Store Settings...");
 
       const now = new Date();
-      await db.insert(schema.storeSettings).values({
-        id: "STORE_MAIN", // Hardcoded ID untuk Single Store
-        name: "Smart POS Store",
-        address: "Lokasi Toko",
-        phone: "-",
-        syncStatus: false,
-        version: 1,
-        createdAt: now,
-        updatedAt: now,
-      });
+      await db
+        .insert(schema.storeSettings)
+        .values({
+          id: "STORE_MAIN", // Hardcoded ID untuk Single Store
+          name: "Smart POS Store",
+          address: "Lokasi Toko",
+          phone: "-",
+          syncStatus: false,
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing();
     }
 
     // -------------------------------------------------------------------------
@@ -81,18 +84,21 @@ export const runSystemSetup = async () => {
       const hashedPassword = await bcrypt.hash("admin123", 10);
       const now = new Date();
 
-      await db.insert(schema.users).values({
-        id: uuidv7(),
-        name: "Super Admin",
-        username: "admin", // Required field
-        email: "admin@pos.local",
-        password: hashedPassword,
-        role: "admin",
-        syncStatus: false,
-        version: 1,
-        createdAt: now,
-        updatedAt: now,
-      });
+      await db
+        .insert(schema.users)
+        .values({
+          id: uuidv7(),
+          name: "Super Admin",
+          username: "admin", // Required field
+          email: "admin@pos.local",
+          password: hashedPassword,
+          role: "admin",
+          syncStatus: false,
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing();
     }
 
     // -------------------------------------------------------------------------

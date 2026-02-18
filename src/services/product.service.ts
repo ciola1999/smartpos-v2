@@ -91,12 +91,12 @@ export const ProductService = {
         });
 
         if (validated.stock > 0) {
-          await tx.insert(schema.inventoryLogs).values({
+          await tx.insert(schema.stockMovements).values({
             id: uuidv7(),
             productId: newId,
-            changeAmount: validated.stock,
-            finalStock: validated.stock,
-            type: "correction",
+            quantity: validated.stock,
+            type: "adjustment",
+            referenceType: "adjustment",
             note: "Initial Stock Setup",
             userId: userId,
             createdAt: now,

@@ -1,0 +1,270 @@
+## **1. MANAJEMEN MULTI-CABANG (BRANCH)**
+- **Branches (Cabang/Outlet)**
+  - Kelola data cabang: kode, nama, alamat, kontak, NPWP, timezone.
+  - Tentukan cabang pusat (headquarters).
+  - Pengaturan spesifik per cabang (format struk, pajak lokal, dll) disimpan dalam JSON `settings`.
+- **Warehouses (Gudang) per Cabang**
+  - Setiap cabang dapat memiliki banyak gudang.
+  - Lacak stok per gudang.
+- **Store Settings per Cabang**
+  - Konfigurasi toko (nama, logo, footer struk, mata uang) yang berbeda per cabang.
+
+---
+
+## **2. MANAJEMEN PENGGUNA & AKSES (USERS & ROLES)**
+- **Users (Pengguna Sistem)**
+  - Role: `superadmin`, `admin`, `manager`, `cashier`, `kitchen`.
+  - Setiap user terikat ke satu cabang (kecuali superadmin).
+  - Autentikasi lokal (password) dan dukungan PIN cepat untuk kasir.
+- **Akses berbasis peran (RBAC)** – belum di-schema tapi akan diimplementasikan di aplikasi.
+
+---
+
+## **3. MANAJEMEN PRODUK & KATEGORI**
+- **Categories (Kategori)**
+  - Hierarki kategori (parent-child).
+  - Slug unik per cabang.
+- **Products (Produk)**
+  - Tipe produk: `simple` (tanpa varian) atau `variable` (dengan varian).
+  - SKU unik per cabang, barcode, nama, deskripsi, gambar (multiple via JSON).
+  - Harga jual (`price`) dan harga pokok (`costPrice`).
+  - Metode penilaian stok: `fifo`, `lifo`, `average` (per produk).
+  - Opsi `trackInventory` untuk produk yang tidak perlu stok (jasa).
+  - Atribut fisik: berat, dimensi (untuk logistik).
+  - Pajak default (`taxId`).
+  - Status aktif/non-aktif.
+  - Flag `hasRecipe` untuk produk yang dirakit dari bahan baku.
+- **Product Variants (Varian Produk)**
+  - Untuk produk tipe `variable`: varian seperti ukuran, warna.
+  - SKU dan barcode sendiri, atribut JSON (misal: `{"warna":"merah","ukuran":"L"}`).
+  - Penyesuaian harga (`priceAdjustment`) dari harga induk.
+  - Stok terpisah jika diperlukan.
+
+---
+
+## **4. MANAJEMEN BAHAN BAKU (INGREDIENTS) & RESEP**
+- **Ingredients (Bahan Baku)**
+  - Data bahan: nama, SKU, barcode, unit (gr, pcs, liter), stok, stok minimum.
+  - Harga pokok per unit (`costPerUnit`).
+  - Opsi `trackBatch` untuk bahan yang memiliki expiry.
+  - Informasi nutrisi (kalori, protein, dll) dan alergen.
+  - Relasi ke pemasok (`supplierId`).
+- **Product Recipes (Resep)**
+  - Hubungan many-to-many antara produk jadi dan bahan baku dengan kuantitas.
+  - Otomatis mengurangi stok bahan saat produk terjual (jika `hasRecipe = true`).
+
+---
+
+## **5. MANAJEMEN BATCH & EXPIRY**
+- **Batches (Batch)**
+  - Untuk produk atau bahan yang perlu dilacak per batch (nomor batch, tanggal kadaluarsa, tanggal produksi).
+  - Kuantitas awal dan sisa, harga pokok per unit dalam batch.
+  - Status batch: `active`, `expired`, `depleted`.
+  - Digunakan dalam penjualan dan pembelian untuk metode FIFO.
+
+---
+
+## **6. MANAJEMEN PEMASOK (SUPPLIERS) & PEMBELIAN**
+- **Suppliers (Pemasok)**
+  - Data pemasok: kode, nama, kontak, NPWP, syarat pembayaran.
+  - Alamat (terhubung ke tabel `addresses`).
+- **Purchase Orders (PO)**
+  - Pemesanan pembelian ke supplier.
+  - Nomor PO unik, tanggal, status (`draft`, `sent`, `partial`, `completed`, `cancelled`).
+  - Subtotal, pajak, diskon, total.
+- **Purchase Order Items**
+  - Item yang dibeli: produk, varian, atau bahan baku.
+  - Kuantitas, harga satuan, pajak, diskon, total.
+  - Kuantitas diterima (`receivedQuantity`) untuk pembelian bertahap.
+- **Penerimaan Barang**
+  - Saat barang diterima, buat `stockMovements` tipe `purchase` dan update stok.
+
+---
+
+## **7. MANAJEMEN STOK & GUDANG**
+- **Stock Movements (Mutasi Stok)**
+  - Mencatat semua perubahan stok (penjualan, pembelian, retur, adjustment, transfer, kerusakan, produksi).
+  - Setiap movement terkait dengan produk/varian/bahan, batch, gudang, dan referensi (ID order/PO).
+  - Kuantitas (+/-), unit cost, user, catatan.
+- **Stok Real-time**
+  - Stok dihitung dari agregasi `stockMovements` atau disimpan sebagai snapshot di tabel produk/varian/ingredient (bisa disinkronkan periodik).
+- **Transfer Antar Gudang**
+  - Transfer stok antar gudang dalam satu cabang atau antar cabang (dengan `stockMovements` tipe `transfer`).
+
+---
+
+## **8. MANAJEMEN PELANGGAN (MEMBERS) & LOYALTY**
+- **Members (Pelanggan)**
+  - Data pelanggan: kode, nama, email, telepon, tanggal lahir, anniversary, NPWP.
+  - Alamat (banyak) dengan label (rumah, kantor) via tabel `addresses`.
+  - Catatan dan status aktif.
+- **Loyalty Programs (Program Loyalitas)**
+  - Jenis: `points` (poin), `stamp` (stempel), `tier` (tingkatan).
+  - Aturan program disimpan dalam JSON (`rules`).
+- **Loyalty Accounts (Akun Loyalitas)**
+  Setiap member dapat mengikuti beberapa program.
+  - Saldo poin, tier, tanggal enroll.
+- **Loyalty Transactions**
+  - Perubahan poin (earn, redeem, expire, adjust) dengan referensi.
+
+---
+
+## **9. MANAJEMEN HARGA & DISKON**
+- **Price Lists (Daftar Harga)**
+  - Tipe: `default`, `promo`, `member`, `wholesale`.
+  - Periode berlaku (start-end).
+  - Item price list: produk/varian dengan harga khusus dan minimum quantity.
+- **Discounts (Promo)**
+  - Kode unik (opsional), nama, tipe (`PERCENTAGE`/`FIXED`).
+  - Nilai diskon, periode berlaku, minimum pembelian.
+  - Dapat dibatasi untuk produk tertentu (`applicableProducts` JSON) atau kategori (`applicableCategories` JSON).
+  - Status aktif.
+
+---
+
+## **10. POINT OF SALE (POS)**
+- **Orders (Pesanan)**
+  - Nomor order unik, tanggal, status (`draft`, `confirmed`, `processing`, `completed`, `cancelled`, `refunded`).
+  - Tipe order: `dine_in`, `take_away`, `delivery`.
+  - Nomor meja, nomor antrian.
+  - Relasi ke member, cashier, cabang, gudang.
+  - Subtotal, diskon, pajak, ongkir, total.
+  - Snapshot pajak (nama, rate) untuk akurasi historis.
+  - Alamat pengiriman dan tagihan (jika berbeda).
+  - Catatan internal.
+- **Order Items (Item Pesanan)**
+  - Item yang dibeli: produk/varian, batch (jika FIFO), kuantitas.
+  - Snapshot nama produk, SKU, harga satuan, diskon, pajak, total.
+  - Harga pokok saat transaksi (`costPriceAtTime`) untuk perhitungan margin.
+- **Order Payments (Pembayaran)**
+  - Metode pembayaran: `cash`, `debit`, `credit`, `qris`, `transfer`, `split`.
+  - Jumlah, nomor referensi (misal: ID transaksi EDC).
+  - Satu order bisa memiliki banyak pembayaran (split payment).
+- **Antrian & Dapur**
+  - Untuk F&B: tampilkan order ke dapur, update status memasak (bisa ditambah nanti).
+
+---
+
+## **11. MANAJEMEN PENGIRIMAN (SHIPMENTS)**
+- **Shipments (Pengiriman)**
+  - Untuk order tipe `delivery`.
+  - Kurir (JNE, dll), layanan, nomor resi.
+  - Status pengiriman: `draft`, `booked`, `picked_up`, `in_transit`, `delivered`, `failed`, `returned`.
+  - Alamat asal dan tujuan (refer ke `addresses`).
+  - Waktu kirim, estimasi tiba, tiba.
+  - Berat, volume, biaya kirim, biaya asuransi.
+- **Shipment Items**
+  - Item yang dikirim (refer ke `orderItemId`) dengan kuantitas.
+
+---
+
+## **12. MANAJEMEN KARYAWAN & SHIFT**
+- **Employees (Karyawan)**
+  - Data karyawan: nomor induk, nama lengkap, jabatan, tipe gaji (`monthly`/`daily`/`hourly`), gaji pokok, rate komisi.
+  - Terkait dengan user (jika karyawan tersebut juga memiliki akun login).
+- **Shifts (Shift Kerja)**
+  - Shift kasir: waktu mulai dan selesai, uang awal, uang akhir (expected vs actual), selisih.
+  - Terkait dengan cabang, karyawan, dan user.
+- **Commissions (Komisi)**
+  - Komisi penjualan untuk karyawan berdasarkan order.
+  - Status dibayar.
+
+---
+
+## **13. AKUNTANSI (DOUBLE-ENTRY)**
+- **Accounts (Chart of Accounts)**
+  - Kode akun unik per cabang, nama, tipe (`asset`, `liability`, `equity`, `income`, `expense`).
+  - Normal balance (`debit`/`credit`).
+  - Hierarki (parent-child).
+- **Journal Entries (Jurnal Umum)**
+  - Setiap transaksi keuangan menghasilkan jurnal.
+  - Tanggal, referensi (nomor jurnal), deskripsi, user pembuat, approval.
+- **Journal Lines (Baris Jurnal)**
+  - Debit dan kredit per akun.
+  - Setiap transaksi (penjualan, pembelian, pembayaran) akan otomatis membuat jurnal.
+
+---
+
+## **14. INTEGRASI E-COMMERCE & MARKETPLACE**
+- **Marketplace Connections**
+  - Koneksi ke marketplace: `tokopedia`, `shopee`, `lazada`, `tiktok`.
+  - Token akses, refresh token, expiry.
+  - Pengaturan khusus per marketplace (JSON).
+- **Marketplace Orders**
+  - Tarik pesanan dari marketplace, simpan data asli (`orderData`).
+  - Mapping status marketplace ke status internal.
+  - Hubungkan dengan order POS (`linkedOrderId`) setelah diproses.
+- **Marketplace Product Mapping**
+  - Hubungan antara produk lokal dengan produk di marketplace.
+
+---
+
+## **15. AUDIT LOG & KEPATUHAN**
+- **Audit Logs**
+  - Catat semua aksi `INSERT`, `UPDATE`, `DELETE` pada tabel penting.
+  - User, tabel, record ID, data lama & baru (JSON), IP, user agent.
+  - Untuk keperluan audit dan troubleshooting.
+
+---
+
+## **16. SINKRONISASI & OFFLINE-FIRST**
+- **Sync Mechanism**
+  - Semua tabel memiliki `version` dan `syncStatus`.
+  - Sinkronisasi delta (hanya kirim perubahan) ke cloud (Turso).
+  - Conflict resolution: Last-Write-Wins berdasarkan version.
+  - Tabel `syncConflicts` mencatat konflik yang tidak bisa di-resolve otomatis.
+- **Offline Capability**
+  - Aplikasi desktop (Tauri) menggunakan SQLite lokal sebagai source of truth.
+  - Web app dapat berfungsi offline dengan IndexedDB (via PGlite).
+  - Semua fitur utama dapat digunakan tanpa internet.
+
+---
+
+## **17. AI & ANALITIK CERDAS**
+- **AI Asisten (Hybrid)**
+  - **Gemini Flash** untuk rekomendasi produk, prediksi penjualan, analisis teks.
+  - **Chrome Built-in AI** untuk tugas ringan lokal (kategorisasi produk, deteksi anomali).
+- **Prediksi & Rekomendasi**
+  - Prediksi stok minimum berdasarkan tren.
+  - Rekomendasi produk ke pelanggan berdasarkan riwayat.
+- **Analitik**
+  - Dashboard real-time: penjualan harian, produk terlaris, jam sibuk.
+  - Laporan laba/rugi, neraca, arus kas.
+  - Analisis RFM untuk segmentasi pelanggan.
+
+---
+
+## **18. LAPORAN & EKSPOR DATA**
+- **Laporan Standar**
+  - Penjualan (per cabang, per kasir, per periode).
+  - Stok (nilai stok, stok menipis, expired).
+  - Keuangan (jurnal, buku besar, neraca, laba rugi).
+  - Pajak (rekap PPN).
+- **Ekspor Data**
+  - Format CSV, Excel, PDF.
+  - Kirim laporan via email.
+
+---
+
+## **19. PENGATURAN & KONFIGURASI**
+- **Store Settings per Cabang**
+  - Nama toko, alamat, kontak, logo, footer struk.
+  - Mata uang, format tanggal.
+  - Pengaturan pajak default.
+  - Konfigurasi sinkronisasi cloud (URL, key).
+- **Backup & Restore**
+  - Backup database lokal.
+  - Restore dari backup.
+
+---
+
+## **20. KEAMANAN**
+- **Tauri Capabilities**
+  - Izin terbatas (hanya akses ke folder data, SQLite, domain backend).
+- **Enkripsi Database Lokal**
+  - SQLite dienkripsi dengan SQLCipher.
+- **Autentikasi**
+  - Password/PIN untuk desktop.
+  - JWT untuk web.
+- **CSP Ketat** di web.
+- **Audit Log** untuk melacak perubahan sensitif.

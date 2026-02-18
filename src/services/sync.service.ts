@@ -55,8 +55,8 @@ const TABLES_TO_SYNC: { name: string; table: SyncableTable }[] = [
     table: schema.orderPayments as unknown as SyncableTable,
   },
   {
-    name: "inventory_logs",
-    table: schema.inventoryLogs as unknown as SyncableTable,
+    name: "stock_movements",
+    table: schema.stockMovements as unknown as SyncableTable,
   },
   { name: "shifts", table: schema.shifts as unknown as SyncableTable },
   {

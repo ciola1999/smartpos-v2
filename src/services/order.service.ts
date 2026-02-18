@@ -31,7 +31,7 @@ export const OrderService = {
       const orderId = uuidv7();
 
       // 2. Process Items
-      const { orderItemsData, inventoryLogsData, productsToUpdate, subtotal } =
+      const { orderItemsData, stockMovementsData, productsToUpdate, subtotal } =
         this._prepareTransactionData(
           payload.items,
           productMap,
@@ -64,7 +64,7 @@ export const OrderService = {
         change,
         taxRate,
         orderItemsData,
-        inventoryLogsData,
+        stockMovementsData,
         productsToUpdate,
       });
 
@@ -83,7 +83,8 @@ export const OrderService = {
   ) {
     let subtotal = 0;
     const orderItemsData: (typeof schema.orderItems.$inferInsert)[] = [];
-    const inventoryLogsData: (typeof schema.inventoryLogs.$inferInsert)[] = [];
+    const stockMovementsData: (typeof schema.stockMovements.$inferInsert)[] =
+      [];
     const productsToUpdate: { id: string; newStock: number }[] = [];
 
     for (const item of items) {
@@ -122,13 +123,13 @@ export const OrderService = {
 
       productsToUpdate.push({ id: product.id, newStock });
 
-      inventoryLogsData.push({
+      stockMovementsData.push({
         id: uuidv7(),
         productId: product.id,
-        changeAmount: -item.quantity,
-        finalStock: newStock,
-        type: "sale" as const,
+        quantity: -item.quantity,
+        type: "sale",
         referenceId: orderId,
+        referenceType: "order",
         userId: cashierId,
         createdAt: now,
         updatedAt: now,
@@ -137,7 +138,7 @@ export const OrderService = {
       });
     }
 
-    return { orderItemsData, inventoryLogsData, productsToUpdate, subtotal };
+    return { orderItemsData, stockMovementsData, productsToUpdate, subtotal };
   },
 
   /**
@@ -155,7 +156,7 @@ export const OrderService = {
       change: number;
       taxRate: number;
       orderItemsData: (typeof schema.orderItems.$inferInsert)[];
-      inventoryLogsData: (typeof schema.inventoryLogs.$inferInsert)[];
+      stockMovementsData: (typeof schema.stockMovements.$inferInsert)[];
       productsToUpdate: { id: string; newStock: number }[];
     },
   ) {
@@ -169,7 +170,7 @@ export const OrderService = {
       change,
       taxRate,
       orderItemsData,
-      inventoryLogsData,
+      stockMovementsData,
       productsToUpdate,
     } = data;
 
@@ -212,8 +213,8 @@ export const OrderService = {
     // C. Bulk Inserts
     if (orderItemsData.length > 0)
       await tx.insert(schema.orderItems).values(orderItemsData);
-    if (inventoryLogsData.length > 0)
-      await tx.insert(schema.inventoryLogs).values(inventoryLogsData);
+    if (stockMovementsData.length > 0)
+      await tx.insert(schema.stockMovements).values(stockMovementsData);
 
     // D. Payment Record
     await tx.insert(schema.orderPayments).values({
