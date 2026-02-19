@@ -27,7 +27,7 @@ type MenuItem = {
 const menuItems: MenuItem[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/dashboard/pos", label: "Kasir (POS)", icon: ShoppingCart },
-  { href: "/dashboard/products", label: "Produk", icon: Package },
+  { href: "/dashboard/inventory/products", label: "Products", icon: Package },
   { href: "/dashboard/staff", label: "Staff & Kasir", icon: UserIcon },
   { href: "/dashboard/settings", label: "Pengaturan", icon: Settings },
 ];

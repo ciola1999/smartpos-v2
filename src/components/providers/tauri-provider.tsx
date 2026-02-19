@@ -3,13 +3,17 @@
 
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useSessionStore } from "@/hooks/use-session-store";
 import { initDb } from "@/lib/db";
+import { loadSessionData, runSystemSetup } from "@/lib/setup";
 import { isTauri } from "@/lib/utils";
 
 export function TauriProvider({ children }: { children: React.ReactNode }) {
   // 1. Default TRUE agar Server & Client sama-sama menampilkan Loading dulu (Mencegah Hydration Error)
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const { setBranchId, setWarehouseId, setUser } = useSessionStore();
 
   useEffect(() => {
     async function bootstrap() {
@@ -19,20 +23,33 @@ export function TauriProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Jika Tauri, inisialisasi DB
+      // Jika Tauri, inisialisasi DB lalu muat sesi
       try {
+        // 1. Init database
         await initDb();
+
+        // 2. Seed data default (branch, warehouse, user, dll.)
+        await runSystemSetup();
+
+        // 3. Muat data sesi dari DB → isi Zustand store
+        const session = await loadSessionData();
+        if (session) {
+          setBranchId(session.branchId);
+          setWarehouseId(session.warehouseId);
+          setUser(session.userId, session.userName);
+        }
+
         setIsLoading(false);
       } catch (err: unknown) {
         console.error("Failed to bootstrap database:", err);
         setError(err instanceof Error ? err.message : String(err));
         // Tetap matikan loading agar user melihat pesan error
-        // atau biarkan loading false jika ingin stuck di error screen
+        setIsLoading(false);
       }
     }
 
     bootstrap();
-  }, []);
+  }, [setBranchId, setWarehouseId, setUser]);
 
   // 2. Logic Render yang Konsisten
   if (isLoading) {
