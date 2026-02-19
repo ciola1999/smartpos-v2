@@ -2,13 +2,15 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 import * as schema from "@/db/schema";
-import { getDb, runTransactionWithRetry } from "@/lib/db";
+import { getDb, runTransactionWithRetry, type TransactionTx } from "@/lib/db";
 
 // 🔌 TAURI INTEROP (Dynamic Import untuk Hybrid App)
-// Mencegah error saat dijalankan di server-side Next.js, tapi aktif di Desktop.
 const isTauri = () => typeof window !== "undefined" && "__TAURI__" in window;
 
-async function invokeTauri(command: string, args: Record<string, any> = {}) {
+async function invokeTauri(
+  command: string,
+  args: Record<string, unknown> = {},
+) {
   if (!isTauri()) return;
   try {
     const { invoke } = await import("@tauri-apps/api/core");
@@ -20,7 +22,6 @@ async function invokeTauri(command: string, args: Record<string, any> = {}) {
 
 // --- 1. VALIDATION SCHEMAS (STRICT ZOD) ---
 
-// Enum ini harus match persis dengan kolom 'type' di database
 const movementTypeSchema = z.enum([
   "sale",
   "purchase",
@@ -34,40 +35,212 @@ const movementTypeSchema = z.enum([
 
 export const adjustStockSchema = z
   .object({
-    // ✅ Support Produk ATAU Bahan Baku (Ingredient)
     productId: z.string().uuid().optional().nullable(),
     ingredientId: z.string().uuid().optional().nullable(),
-
-    warehouseId: z.string().uuid(), // ⚠️ Wajib: Stok fisik harus punya lokasi
-
+    warehouseId: z.string().uuid(),
     variantId: z.string().uuid().optional().nullable(),
     batchId: z.string().uuid().optional().nullable(),
-
-    // Tipe aksi yang diperbolehkan dari UI Frontend
     type: z.enum(["restock", "correction", "damage", "void", "production"]),
-
     quantity: z.number().nonnegative("Jumlah harus positif"),
-
-    // ✅ Unit Cost: Input number dari UI, tapi nanti disimpan sebagai Text di DB
     unitCost: z.number().nonnegative().optional(),
-
     note: z.string().min(1, "Wajib menyertakan catatan (audit trail)"),
-    referenceId: z.string().optional(), // ID Referensi luar (misal No. PO)
+    referenceId: z.string().optional(),
   })
   .refine((data) => data.productId || data.ingredientId, {
     message: "Harus menyertakan Product ID atau Ingredient ID",
-    path: ["productId"], // Error akan muncul di field productId
+    path: ["productId"],
   });
 
 export type AdjustStockInput = z.infer<typeof adjustStockSchema>;
 
-// --- 2. SERVICE IMPLEMENTATION ---
+// ============================================================================
+// 2. HELPER FUNCTIONS (Internal)
+// ============================================================================
+
+async function fetchItemDetails(
+  tx: TransactionTx,
+  validated: z.infer<typeof adjustStockSchema>,
+) {
+  let branchId = "";
+  let itemName = "";
+  let currentCostString = "0";
+
+  if (validated.productId) {
+    const product = await tx.query.products.findFirst({
+      where: eq(schema.products.id, validated.productId),
+    });
+    if (!product) throw new Error("Produk tidak ditemukan.");
+    branchId = product.branchId || "";
+    itemName = product.name;
+    currentCostString = String(product.costPrice ?? "0");
+  } else if (validated.ingredientId) {
+    const ingredient = await tx.query.ingredients.findFirst({
+      where: eq(schema.ingredients.id, validated.ingredientId),
+    });
+    if (!ingredient) throw new Error("Bahan baku tidak ditemukan.");
+
+    const wh = await tx.query.warehouses.findFirst({
+      where: eq(schema.warehouses.id, validated.warehouseId),
+      columns: { branchId: true },
+    });
+    if (!wh) throw new Error("Gudang tidak valid.");
+
+    branchId = wh.branchId;
+    itemName = ingredient.name;
+    currentCostString = String(ingredient.costPerUnit ?? "0");
+  }
+
+  if (!branchId)
+    throw new Error(
+      "Data Error: Branch ID tidak ditemukan untuk transaksi ini.",
+    );
+
+  return { branchId, itemName, currentCostString };
+}
+
+function calculateDelta(
+  validated: z.infer<typeof adjustStockSchema>,
+  currentQty: number,
+): { delta: number; dbMovementType: z.infer<typeof movementTypeSchema> } {
+  let delta = 0;
+  let dbMovementType: z.infer<typeof movementTypeSchema> = "adjustment";
+
+  switch (validated.type) {
+    case "restock":
+      delta = validated.quantity;
+      dbMovementType = "purchase";
+      break;
+    case "production":
+      delta = validated.quantity;
+      dbMovementType = "production";
+      break;
+    case "damage":
+    case "void":
+      delta = -validated.quantity;
+      dbMovementType = validated.type === "void" ? "void" : "damage";
+      break;
+    case "correction":
+      delta = validated.quantity - currentQty;
+      dbMovementType = "adjustment";
+      break;
+  }
+
+  return { delta, dbMovementType };
+}
+
+async function recordMovement(
+  tx: TransactionTx,
+  payload: {
+    id: string;
+    branchId: string;
+    warehouseId: string;
+    productId: string | null;
+    ingredientId: string | null;
+    variantId: string | null;
+    batchId: string | null;
+    userId: string;
+    type: z.infer<typeof movementTypeSchema>;
+    quantity: number;
+    unitCost: string;
+    note: string;
+    referenceId?: string;
+    referenceType: string;
+    now: Date;
+  },
+) {
+  await tx.insert(schema.stockMovements).values({
+    id: payload.id,
+    branchId: payload.branchId,
+    warehouseId: payload.warehouseId,
+    productId: payload.productId,
+    ingredientId: payload.ingredientId,
+    variantId: payload.variantId,
+    batchId: payload.batchId,
+    userId: payload.userId,
+    type: payload.type,
+    quantity: payload.quantity,
+    unitCost: payload.unitCost,
+    note: payload.note,
+    referenceId: payload.referenceId,
+    referenceType: payload.referenceType,
+    createdAt: payload.now,
+    updatedAt: payload.now,
+    version: 1,
+    syncStatus: false,
+  });
+}
+
+async function touchParent(
+  tx: TransactionTx,
+  productId: string | null,
+  ingredientId: string | null,
+  now: Date,
+) {
+  const versionSql = sql`version + 1`;
+  const updateData = {
+    updatedAt: now,
+    version: versionSql,
+    syncStatus: false,
+  };
+
+  if (productId) {
+    await tx
+      .update(schema.products)
+      .set(updateData)
+      .where(eq(schema.products.id, productId));
+  } else if (ingredientId) {
+    await tx
+      .update(schema.ingredients)
+      .set(updateData)
+      .where(eq(schema.ingredients.id, ingredientId));
+  }
+}
+
+async function getCorrectionCurrentStock(
+  validated: z.infer<typeof adjustStockSchema>,
+) {
+  if (validated.type !== "correction") return 0;
+  return await InventoryService.getCurrentStock(
+    {
+      productId: validated.productId ?? undefined,
+      ingredientId: validated.ingredientId ?? undefined,
+      variantId: validated.variantId,
+    },
+    validated.warehouseId,
+  );
+}
+
+const REFERENCE_TYPE_MAP: Record<string, string> = {
+  restock: "purchase_order",
+  correction: "stock_opname",
+  damage: "damage_report",
+  void: "void_log",
+  production: "production_log",
+};
+
+function getReferenceType(type: string): string {
+  return REFERENCE_TYPE_MAP[type] ?? "manual_adjustment";
+}
+
+function handleTauriFeedback(
+  dbMovementType: string,
+  itemName: string,
+  delta: number,
+  warehouseId: string,
+) {
+  if (isTauri()) {
+    invokeTauri("trigger_feedback", { status: "success" });
+    const logMsg = `[${dbMovementType.toUpperCase()}] Item: ${itemName} | Qty: ${delta} | Loc: ${warehouseId}`;
+    invokeTauri("write_secure_log", { message: logMsg, level: "info" });
+  }
+}
+
+// ============================================================================
+// 3. SERVICE IMPLEMENTATION
+// ============================================================================
 
 export const InventoryService = {
-  /**
-   * Mendapatkan stok saat ini berdasarkan Agregasi (SUM).
-   * Supports: Product, Variant, dan Ingredient.
-   */
+  // ... getCurrentStock ...
   async getCurrentStock(
     target: {
       productId?: string;
@@ -79,7 +252,6 @@ export const InventoryService = {
     const db = getDb();
     const filters = [];
 
-    // Filter Dynamic berdasarkan target (Barang Jadi vs Bahan Baku)
     if (target.productId)
       filters.push(eq(schema.stockMovements.productId, target.productId));
     if (target.ingredientId)
@@ -87,11 +259,9 @@ export const InventoryService = {
     if (target.variantId)
       filters.push(eq(schema.stockMovements.variantId, target.variantId));
 
-    // Filter Gudang (Opsional, jika null berarti cek stok global satu perusahaan)
     if (warehouseId)
       filters.push(eq(schema.stockMovements.warehouseId, warehouseId));
 
-    // Safety: Jangan query jika tidak ada ID target
     if (filters.length === 0) return 0;
 
     const [result] = await db
@@ -107,194 +277,64 @@ export const InventoryService = {
     return result?.total ?? 0;
   },
 
-  /**
-   * CORE LOGIC: Mengubah stok dengan prinsip Double-Entry Log.
-   * Menangani Product & Ingredient, serta konversi tipe data Text/Real.
-   */
   async adjustStock(input: AdjustStockInput, userId: string) {
-    // 1. Validasi Input Zod
     const validated = adjustStockSchema.parse(input);
     const db = getDb();
 
     return await runTransactionWithRetry(db, async (tx) => {
-      let branchId = "";
-      let itemName = "";
-      let currentCostString = "0"; // Default string "0"
+      const { branchId, itemName, currentCostString } = await fetchItemDetails(
+        tx,
+        validated,
+      );
 
-      // 2. IDENTIFIKASI ITEM & FETCH DATA MASTER
-      // Kita perlu mengambil Branch ID dan Cost Price terakhir untuk snapshot
+      const currentQty = await getCorrectionCurrentStock(validated);
 
-      if (validated.productId) {
-        // --- LOGIC PRODUK ---
-        const [product] = await tx
-          .select({
-            branchId: schema.products.branchId,
-            name: schema.products.name,
-            cost: schema.products.costPrice, // Asumsi costPrice di Product disimpan sbg Text
-          })
-          .from(schema.products)
-          .where(eq(schema.products.id, validated.productId));
+      const { delta, dbMovementType } = calculateDelta(validated, currentQty);
 
-        if (!product) throw new Error("Produk tidak ditemukan.");
-        branchId = product.branchId!;
-        itemName = product.name;
-        currentCostString = String(product.cost ?? "0");
-      } else if (validated.ingredientId) {
-        // --- LOGIC BAHAN BAKU (INGREDIENT) ---
-        const [ingredient] = await tx
-          .select({
-            id: schema.ingredients.id,
-            name: schema.ingredients.name,
-            cost: schema.ingredients.costPerUnit, // Asumsi costPerUnit di Ingredient
-          })
-          .from(schema.ingredients)
-          .where(eq(schema.ingredients.id, validated.ingredientId));
-
-        if (!ingredient) throw new Error("Bahan baku tidak ditemukan.");
-
-        // ⚠️ Fallback Branch:
-        // Jika Ingredient bersifat global (tidak punya branchId), kita ambil branchId dari Warehouse transaksi.
-        // Karena 'stockMovements' WAJIB punya branchId.
-        const [wh] = await tx
-          .select({ branchId: schema.warehouses.branchId })
-          .from(schema.warehouses)
-          .where(eq(schema.warehouses.id, validated.warehouseId));
-
-        if (!wh) throw new Error("Gudang tidak valid.");
-
-        branchId = wh.branchId;
-        itemName = ingredient.name;
-        currentCostString = String(ingredient.cost ?? "0");
+      if (delta === 0 && validated.type === "correction") {
+        return {
+          success: true,
+          message: "Stok fisik sudah sesuai dengan sistem.",
+          newStock: currentQty,
+        };
       }
-
-      if (!branchId)
-        throw new Error(
-          "Data Error: Branch ID tidak ditemukan untuk transaksi ini.",
-        );
-
-      // 3. HITUNG STOK EKSISTING (Jika tipe transaksi adalah Correction/Opname)
-      let currentQty = 0;
-      if (validated.type === "correction") {
-        currentQty = await InventoryService.getCurrentStock(
-          {
-            productId: validated.productId ?? undefined,
-            ingredientId: validated.ingredientId ?? undefined,
-            variantId: validated.variantId,
-          },
-          validated.warehouseId,
-        );
-      }
-
-      // 4. HITUNG DELTA (SELISIH) & MAPPING KE DB ENUM
-      let delta = 0;
-      let dbMovementType: z.infer<typeof movementTypeSchema> = "adjustment";
-
-      switch (validated.type) {
-        case "restock":
-          delta = validated.quantity;
-          dbMovementType = "purchase";
-          break;
-        case "production":
-          delta = validated.quantity; // Bisa positif (produk jadi) atau negatif (bahan baku terpakai)
-          // Note: Di UI biasanya production restock = produk jadi nambah.
-          dbMovementType = "production";
-          break;
-        case "damage":
-        case "void":
-          delta = -validated.quantity; // Mengurangi stok
-          dbMovementType = validated.type === "void" ? "void" : "damage";
-          break;
-        case "correction":
-          // Logic: Input User (Real) - Stok Sistem = Selisih
-          delta = validated.quantity - currentQty;
-
-          if (delta === 0) {
-            return {
-              success: true,
-              message: "Stok fisik sudah sesuai dengan sistem.",
-              newStock: currentQty,
-            };
-          }
-          dbMovementType = "adjustment";
-          break;
-      }
-
-      // 5. STANDARDISASI REFERENCE & COST
-      // Mapping tipe transaksi UI ke Reference Type Database agar seragam
-      const referenceTypeMap: Record<string, string> = {
-        restock: "purchase_order",
-        correction: "stock_opname",
-        damage: "damage_report",
-        void: "void_log",
-        production: "production_log",
-      };
-
-      // Pastikan unitCost masuk sebagai String ke DB (sesuai Schema)
-      const finalUnitCost = validated.unitCost
-        ? String(validated.unitCost)
-        : currentCostString;
 
       const now = new Date();
+      const movementId = uuidv7();
 
-      // 6. EXECUTE INSERT (MENGGUNAKAN SEMUA KOLOM SCHEMA)
-      await tx.insert(schema.stockMovements).values({
-        id: uuidv7(),
-        branchId: branchId, // ✅ Wajib Foreign Key
-        warehouseId: validated.warehouseId, // ✅ Wajib Foreign Key
-
-        productId: validated.productId ?? null, // ✅ Nullable
-        ingredientId: validated.ingredientId ?? null, // ✅ Nullable (Terisi jika bahan baku)
-        variantId: validated.variantId ?? null, // ✅ Nullable
-        batchId: validated.batchId ?? null, // ✅ Nullable
-
-        userId: userId, // ✅ Wajib (Audit User)
-
-        type: dbMovementType, // ✅ Enum Strict
-        quantity: delta, // ✅ Real/Float
-
-        unitCost: finalUnitCost, // ✅ Text (Snapshot harga saat kejadian)
-
+      await recordMovement(tx, {
+        id: movementId,
+        branchId,
+        warehouseId: validated.warehouseId,
+        productId: validated.productId ?? null,
+        ingredientId: validated.ingredientId ?? null,
+        variantId: validated.variantId ?? null,
+        batchId: validated.batchId ?? null,
+        userId,
+        type: dbMovementType,
+        quantity: delta,
+        unitCost: validated.unitCost
+          ? String(validated.unitCost)
+          : currentCostString,
         note: validated.note,
         referenceId: validated.referenceId,
-        referenceType: referenceTypeMap[validated.type] ?? "manual_adjustment", // ✅ Standardized String
-
-        createdAt: now,
-        updatedAt: now,
-        version: 1, // 🔄 Sync Logic
-        syncStatus: false, // 🔄 Sync Logic
+        referenceType: getReferenceType(validated.type),
+        now,
       });
 
-      // 7. TOUCH PARENT ENTITY (Untuk Trigger Sync ke Cloud)
-      // Kita update 'version' produk/ingredient agar worker sync tahu ada perubahan data terkait.
-      if (validated.productId) {
-        await tx
-          .update(schema.products)
-          .set({
-            updatedAt: now,
-            version: sql`${schema.products.version} + 1`,
-            syncStatus: false,
-          })
-          .where(eq(schema.products.id, validated.productId));
-      } else if (validated.ingredientId) {
-        await tx
-          .update(schema.ingredients)
-          .set({
-            updatedAt: now,
-            version: sql`${schema.ingredients.version} + 1`,
-            syncStatus: false,
-          })
-          .where(eq(schema.ingredients.id, validated.ingredientId));
-      }
+      await touchParent(
+        tx,
+        validated.productId ?? null,
+        validated.ingredientId ?? null,
+        now,
+      );
 
-      // 8. TAURI NATIVE CAPABILITIES (Desktop Only)
-      if (isTauri()) {
-        // Feedback Getar/Suara
-        invokeTauri("trigger_feedback", { status: "success" });
-
-        // Secure Audit Log ke File System (Anti-Tamper)
-        const logMsg = `[${dbMovementType.toUpperCase()}] Item: ${itemName} | Qty: ${delta} | Loc: ${validated.warehouseId}`;
-        invokeTauri("write_secure_log", { message: logMsg, level: "info" });
-      }
+      handleTauriFeedback(
+        dbMovementType,
+        itemName,
+        delta,
+        validated.warehouseId,
+      );
 
       return {
         success: true,
@@ -307,10 +347,6 @@ export const InventoryService = {
     });
   },
 
-  /**
-   * Mengambil History Mutasi (Kartu Stok)
-   * Support Produk & Bahan Baku
-   */
   async getHistory(
     targetId: { productId?: string; ingredientId?: string },
     warehouseId?: string,
@@ -318,8 +354,6 @@ export const InventoryService = {
   ) {
     try {
       const db = getDb();
-
-      // Bangun query conditions dynamic
       const conditions = [];
       if (targetId.productId)
         conditions.push(
@@ -340,11 +374,10 @@ export const InventoryService = {
           type: schema.stockMovements.type,
           quantity: schema.stockMovements.quantity,
           note: schema.stockMovements.note,
-          unitCost: schema.stockMovements.unitCost, // ✅ Ambil data cost snapshot
+          unitCost: schema.stockMovements.unitCost,
           referenceType: schema.stockMovements.referenceType,
-
-          warehouseName: schema.warehouses.name, // ✅ Join nama gudang
-          userName: schema.users.name, // ✅ Join nama user
+          warehouseName: schema.warehouses.name,
+          userName: schema.users.name,
         })
         .from(schema.stockMovements)
         .leftJoin(

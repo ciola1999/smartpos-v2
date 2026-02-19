@@ -41,7 +41,97 @@ interface ProductQueryParams {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🧠 BUSINESS LOGIC: Product Service (Schema Aligned)
+// 🧠 HELPER FUNCTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🧠 HELPER FUNCTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Mapping dasar: nama, sku, barcode, deskripsi, kategori, pajak.
+ */
+function mapBasicInfo(
+  data: Partial<ProductFormValues>,
+  payload: Partial<typeof schema.products.$inferInsert>,
+) {
+  if (data.name !== undefined) payload.name = data.name;
+  if (data.sku !== undefined) payload.sku = data.sku;
+  if (data.barcode !== undefined) payload.barcode = data.barcode;
+  if (data.description !== undefined) payload.description = data.description;
+  if (data.categoryId !== undefined) payload.categoryId = data.categoryId;
+  if (data.taxId !== undefined) payload.taxId = data.taxId;
+  if (data.status !== undefined) payload.isActive = data.status === "active";
+}
+
+/**
+ * Mapping finansial: harga jual dan harga beli.
+ */
+function mapPricing(
+  data: Partial<ProductFormValues>,
+  payload: Partial<typeof schema.products.$inferInsert>,
+) {
+  if (data.price !== undefined) payload.price = data.price.toString();
+  if (data.costPrice !== undefined)
+    payload.costPrice = data.costPrice.toString();
+}
+
+/**
+ * Mapping inventory & unit.
+ */
+function mapInventorySettings(
+  data: Partial<ProductFormValues>,
+  payload: Partial<typeof schema.products.$inferInsert>,
+) {
+  if (data.unit !== undefined) payload.unit = data.unit;
+  if (data.valuationMethod !== undefined)
+    payload.valuationMethod = data.valuationMethod;
+  if (data.minStock !== undefined) payload.minimumStock = data.minStock;
+  if (data.maxStock !== undefined) payload.maximumStock = data.maxStock;
+  if (data.trackInventory !== undefined)
+    payload.trackInventory = data.trackInventory;
+  if (data.hasRecipe !== undefined) payload.hasRecipe = data.hasRecipe;
+}
+
+/**
+ * Mapping atribut fisik: berat dan dimensi.
+ */
+function mapPhysicalAttributes(
+  data: Partial<ProductFormValues>,
+  payload: Partial<typeof schema.products.$inferInsert>,
+) {
+  if (data.weight !== undefined) payload.weight = data.weight;
+  if (data.weightUnit !== undefined) payload.weightUnit = data.weightUnit;
+  if (data.dimensions !== undefined) {
+    payload.dimensions = data.dimensions
+      ? JSON.stringify(data.dimensions)
+      : null;
+  }
+}
+
+/**
+ * Mappings manual dari ProductFormValues ke DB Schema.
+ */
+function mapProductFormToSchema(
+  data: Partial<ProductFormValues>,
+): Partial<typeof schema.products.$inferInsert> {
+  const payload: Partial<typeof schema.products.$inferInsert> = {};
+
+  mapBasicInfo(data, payload);
+  mapPricing(data, payload);
+  mapInventorySettings(data, payload);
+  mapPhysicalAttributes(data, payload);
+
+  if (data.images !== undefined) {
+    payload.imageUrls =
+      data.images.length > 0 ? JSON.stringify(data.images) : null;
+  }
+
+  return payload;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🚀 BUSINESS LOGIC: Product Service
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const ProductService = {
@@ -59,23 +149,20 @@ export const ProductService = {
         isNull(schema.products.deletedAt),
       ];
 
-      // ⚠️ FIX: Mapping Status Enum -> Boolean isActive
       if (status) {
         if (status === "active")
           conditions.push(eq(schema.products.isActive, true));
         if (status === "inactive")
           conditions.push(eq(schema.products.isActive, false));
-        // Archived biasanya ditangani via deletedAt, tapi jika logic Anda beda, sesuaikan disini
       }
 
       if (query) {
-        conditions.push(
-          or(
-            like(schema.products.name, `%${query}%`),
-            like(schema.products.sku, `%${query}%`),
-            like(schema.products.barcode, `%${query}%`),
-          )!,
+        const searchFilter = or(
+          like(schema.products.name, `%${query}%`),
+          like(schema.products.sku, `%${query}%`),
+          like(schema.products.barcode, `%${query}%`),
         );
+        if (searchFilter) conditions.push(searchFilter);
       }
 
       if (categoryId && categoryId !== "all") {
@@ -126,7 +213,6 @@ export const ProductService = {
       const newId = uuidv7();
       const now = new Date();
 
-      // 1. Cek Duplikasi (SKU/Barcode)
       const existing = await db.query.products.findFirst({
         where: and(
           eq(schema.products.branchId, branchId),
@@ -154,48 +240,35 @@ export const ProductService = {
       }
 
       await runTransactionWithRetry(db, async (tx) => {
-        // 2. Insert Product
-        // ❌ HAPUS 'productType' karena tidak ada di schema database
-        // ❌ HAPUS 'attributes' karena tidak ada di schema database
         await tx.insert(schema.products).values({
           id: newId,
           branchId: branchId,
-
           name: data.name,
           sku: data.sku,
           barcode: data.barcode || null,
           description: data.description || "",
-
-          // ✅ FIX: Konversi Array Images ke JSON String
           imageUrls:
             data.images.length > 0 ? JSON.stringify(data.images) : null,
-
-          // ✅ FIX: Konversi Number ke String Decimal
           price: data.price.toString(),
           costPrice: data.costPrice.toString(),
-
-          // Pastikan kolom ini ada (jika error, hapus baris taxId ini)
           taxId: data.taxId || null,
           categoryId: data.categoryId || null,
-
           unit: data.unit,
-          minimumStock: data.minStock, // ✅ FIX: Mapping minStock -> minimumStock
-
-          isActive: data.status === "active", // ✅ FIX: Mapping status -> isActive
+          valuationMethod: data.valuationMethod,
+          minimumStock: data.minStock,
+          maximumStock: data.maxStock || null,
+          weight: data.weight || null,
+          weightUnit: data.weightUnit,
+          dimensions: data.dimensions ? JSON.stringify(data.dimensions) : null,
+          isActive: data.status === "active",
           trackInventory: data.trackInventory,
           hasRecipe: data.hasRecipe,
-
-          // ⚠️ PENTING: Baris 'productType' DIHAPUS karena error "does not exist"
-          // productType: data.productType,
-
-          // System Fields
           createdAt: now,
           updatedAt: now,
           version: 1,
           syncStatus: false,
         });
 
-        // 3. Insert Initial Stock Movement
         if (data.trackInventory && data.stock > 0) {
           await tx.insert(schema.stockMovements).values({
             id: uuidv7(),
@@ -204,7 +277,7 @@ export const ProductService = {
             productId: newId,
             type: "adjustment",
             quantity: data.stock,
-            unitCost: data.costPrice.toString(), // ✅ FIX: Gunakan unitCost (sesuai schema umum)
+            unitCost: data.costPrice.toString(),
             referenceType: "manual_adjustment",
             note: "Inisialisasi Produk Baru",
             userId: userId,
@@ -218,7 +291,6 @@ export const ProductService = {
       return { success: true, data: newId };
     } catch (error) {
       console.error("[ProductService.create] Error:", error);
-      // Menangkap error detail dari Drizzle/SQLite
       if (error instanceof Error) {
         return {
           success: false,
@@ -239,40 +311,7 @@ export const ProductService = {
       const db = await getDb();
       const now = new Date();
 
-      // Membangun object update yang 100% Type-Safe dengan Schema
-      const updatePayload: Partial<typeof schema.products.$inferInsert> = {};
-
-      if (data.name !== undefined) updatePayload.name = data.name;
-      if (data.sku !== undefined) updatePayload.sku = data.sku;
-      if (data.barcode !== undefined) updatePayload.barcode = data.barcode;
-      if (data.description !== undefined)
-        updatePayload.description = data.description;
-
-      // ⚠️ FIX: JSON Stringify
-      if (data.images !== undefined) {
-        updatePayload.imageUrls =
-          data.images.length > 0 ? JSON.stringify(data.images) : null;
-      }
-
-      if (data.categoryId !== undefined)
-        updatePayload.categoryId = data.categoryId;
-      if (data.taxId !== undefined) updatePayload.taxId = data.taxId;
-
-      if (data.price !== undefined) updatePayload.price = data.price.toString();
-      if (data.costPrice !== undefined)
-        updatePayload.costPrice = data.costPrice.toString();
-
-      // ⚠️ FIX: Column Mapping
-      if (data.minStock !== undefined)
-        updatePayload.minimumStock = data.minStock;
-      if (data.status !== undefined)
-        updatePayload.isActive = data.status === "active";
-
-      if (data.trackInventory !== undefined)
-        updatePayload.trackInventory = data.trackInventory;
-      if (data.hasRecipe !== undefined)
-        updatePayload.hasRecipe = data.hasRecipe;
-
+      const updatePayload = mapProductFormToSchema(data);
       updatePayload.updatedAt = now;
       updatePayload.syncStatus = false;
       updatePayload.version =
@@ -288,8 +327,6 @@ export const ProductService = {
           ),
         );
 
-      // ⚠️ FIX: Handle 'rowsAffected' error by checking result existence safely
-      // Drizzle SQLite result varies. Safe check:
       if (!result) {
         return { success: false, error: "Gagal update (No Result)." };
       }
@@ -316,8 +353,8 @@ export const ProductService = {
       await db
         .update(schema.products)
         .set({
-          isActive: false, // Set inactive
-          deletedAt: now, // Set soft delete
+          isActive: false,
+          deletedAt: now,
           updatedAt: now,
           version: sql`${schema.products.version} + 1` as unknown as number,
           syncStatus: false,
@@ -361,14 +398,13 @@ export const ProductService = {
       const data = await db.query.categories.findMany({
         where: or(
           eq(schema.categories.branchId, branchId),
-          isNull(schema.categories.branchId), // Ambil kategori global juga
+          isNull(schema.categories.branchId),
         ),
-        orderBy: asc(schema.categories.name), // ➕ UX: Urutkan A-Z
+        orderBy: asc(schema.categories.name),
       });
 
       return { success: true, data };
     } catch (error) {
-      // ✅ FIX: Gunakan variabel 'error' untuk logging agar tidak kena linter
       console.error("[ProductService.getCategories] Error:", error);
       return { success: false, error: "Gagal mengambil data kategori." };
     }

@@ -1,7 +1,8 @@
 import { ChevronDown, Loader2, Package, Save, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type * as schema from "@/db/schema";
-import { useInventory } from "@/hooks/use-inventory";
+import { useProductMutations } from "@/hooks/use-products";
+import { useSessionStore } from "@/hooks/use-session-store";
 import {
   ProductFormSchema,
   type ProductFormValues,
@@ -14,7 +15,8 @@ interface AddProductDialogProps {
 }
 
 export function AddProductDialog({ isOpen, onClose }: AddProductDialogProps) {
-  const { createProduct, isCreating } = useInventory();
+  const { branchId, warehouseId, userId } = useSessionStore();
+  const { createProduct } = useProductMutations(branchId || "");
 
   // Local state untuk error handling manual (tanpa react-hook-form agar ringan dulu)
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -31,21 +33,31 @@ export function AddProductDialog({ isOpen, onClose }: AddProductDialogProps) {
     barcode: "",
     categoryId: "",
     unit: "pcs",
+    valuationMethod: "fifo",
     minStock: 0,
+    maxStock: null,
+    weight: null,
+    weightUnit: "kg",
+    dimensions: null,
     description: "",
-    imageUrl: "",
+    images: [],
+    productType: "simple",
+    trackInventory: true,
+    hasRecipe: false,
+    status: "active",
+    attributes: {},
   });
 
   // Fetch Categories on Mount
   useEffect(() => {
-    if (isOpen) {
-      ProductService.getCategories().then((res) => {
+    if (isOpen && branchId) {
+      ProductService.getCategories(branchId).then((res) => {
         if (res.success && res.data) {
           setCategories(res.data as (typeof schema.categories.$inferSelect)[]);
         }
       });
     }
-  }, [isOpen]);
+  }, [isOpen, branchId]);
 
   if (!isOpen) return null;
 
@@ -59,8 +71,6 @@ export function AddProductDialog({ isOpen, onClose }: AddProductDialogProps) {
       // Mapping Zod errors ke UI
       const fieldErrors: Record<string, string> = {};
       result.error.issues.forEach((issue) => {
-        // 🛠️ FIX: Konversi path ke String secara eksplisit
-        // Ini menangani error TS2538 dan memastikan key selalu valid
         if (issue.path[0]) {
           fieldErrors[String(issue.path[0])] = issue.message;
         }
@@ -69,24 +79,43 @@ export function AddProductDialog({ isOpen, onClose }: AddProductDialogProps) {
       return;
     }
 
-    // Jika valid, kirim ke logic hook
-    await createProduct(result.data);
+    // Jika valid, kirim ke logic mutation
+    try {
+      await createProduct.mutateAsync({
+        warehouseId: warehouseId || "default-wh",
+        data: result.data,
+        userId: userId || "system",
+      });
 
-    // Reset form setelah sukses
-    setFormData({
-      name: "",
-      price: 0,
-      costPrice: 0,
-      stock: 0,
-      sku: "",
-      barcode: "",
-      categoryId: "",
-      unit: "pcs",
-      minStock: 0,
-      description: "",
-      imageUrl: "",
-    });
-    setErrors({});
+      // Reset form setelah sukses
+      setFormData({
+        name: "",
+        price: 0,
+        costPrice: 0,
+        stock: 0,
+        sku: "",
+        barcode: "",
+        categoryId: "",
+        unit: "pcs",
+        valuationMethod: "fifo",
+        minStock: 0,
+        maxStock: null,
+        weight: null,
+        weightUnit: "kg",
+        dimensions: null,
+        description: "",
+        images: [],
+        productType: "simple",
+        trackInventory: true,
+        hasRecipe: false,
+        status: "active",
+        attributes: {},
+      });
+      setErrors({});
+      onClose(); // Tutup setelah sukses
+    } catch (_err) {
+      // Error di-handle oleh toast di mutation.onError
+    }
   };
 
   return (
@@ -352,19 +381,22 @@ export function AddProductDialog({ isOpen, onClose }: AddProductDialogProps) {
                 </div>
                 <div className="space-y-1.5">
                   <label
-                    htmlFor="imageUrl"
+                    htmlFor="images"
                     className="text-sm font-semibold text-gray-700 dark:text-gray-300"
                   >
                     URL Gambar
                   </label>
                   <input
-                    id="imageUrl"
+                    id="images"
                     type="text"
                     placeholder="https://..."
                     className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 outline-none focus:border-blue-500 dark:focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-500/20 transition-all text-sm dark:text-gray-100"
-                    value={formData.imageUrl || ""}
+                    value={formData.images[0] || ""}
                     onChange={(e) =>
-                      setFormData({ ...formData, imageUrl: e.target.value })
+                      setFormData({
+                        ...formData,
+                        images: e.target.value ? [e.target.value] : [],
+                      })
                     }
                   />
                 </div>
@@ -403,10 +435,10 @@ export function AddProductDialog({ isOpen, onClose }: AddProductDialogProps) {
             </button>
             <button
               type="submit"
-              disabled={isCreating}
+              disabled={createProduct.isPending}
               className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 rounded-xl shadow-lg shadow-blue-200 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
             >
-              {isCreating ? (
+              {createProduct.isPending ? (
                 <Loader2 size={18} className="animate-spin" />
               ) : (
                 <Save size={18} />

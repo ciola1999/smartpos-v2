@@ -2,7 +2,13 @@
 
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
-import { AlertCircle, ArrowDown, ArrowRightLeft, ArrowUp } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowDown,
+  ArrowRightLeft,
+  ArrowUp,
+  type LucideIcon,
+} from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -125,7 +131,10 @@ export function StockHistoryTable({
 
 // Helper Component untuk Badge Tipe
 function MovementBadge({ type }: { type: string }) {
-  const styles: Record<string, { label: string; color: string; icon: any }> = {
+  const styles: Record<
+    string,
+    { label: string; color: string; icon: LucideIcon }
+  > = {
     sale: {
       label: "Penjualan",
       color: "bg-blue-100 text-blue-700",

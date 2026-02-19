@@ -7,7 +7,7 @@ export const ProductFormSchema = z.object({
   barcode: z.string().optional().nullable(),
   description: z.string().optional().default(""),
 
-  // 📸 Images: Input array string -> nanti di-convert ke string JSON di Service
+  // 📸 Images
   images: z.array(z.string()).default([]),
 
   // 🔗 Relations
@@ -21,18 +21,33 @@ export const ProductFormSchema = z.object({
   // 📦 Inventory Logic
   productType: z.enum(["simple", "variable"]).default("simple"),
   unit: z.string().default("pcs"),
+  valuationMethod: z.enum(["fifo", "lifo", "average"]).default("fifo"),
 
-  // ⚠️ MAPPING: Form 'minStock' -> DB 'minimumStock'
+  // ⚠️ MAPPING: Form -> DB
   minStock: z.coerce.number().default(0),
-  stock: z.coerce.number().default(0), // Stok awal
+  maxStock: z.coerce.number().optional().nullable(),
+  stock: z.coerce.number().default(0),
 
   trackInventory: z.boolean().default(true),
   hasRecipe: z.boolean().default(false),
 
+  // Physical Attributes
+  weight: z.coerce.number().optional().nullable(),
+  weightUnit: z.string().default("kg"),
+  dimensions: z
+    .object({
+      length: z.number().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+      unit: z.string().default("cm"),
+    })
+    .optional()
+    .nullable(),
+
   // ⚠️ MAPPING: Form 'status' -> DB 'isActive'
   status: z.enum(["active", "inactive", "archived"]).default("active"),
 
-  // Attributes (Hanya untuk keperluan UI/Variant generation, tidak masuk tabel products)
+  // Attributes
   attributes: z.record(z.string(), z.string()).optional().default({}),
 });
 

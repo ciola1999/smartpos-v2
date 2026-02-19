@@ -1,16 +1,45 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "default",
-	"description": "enables the default permissions",
+	"description": "enables the default permissions for SmartPOS desktop app",
 	"windows": ["main"],
 	"permissions": [
 		"core:default",
+
 		"fs:default",
-		"fs:allow-app-log-dir-write",
-		"fs:allow-app-log-dir-read",
+		"fs:allow-read-file",
+		"fs:allow-write-file",
+		"fs:allow-read-text-file",
+		"fs:allow-write-text-file",
+		"fs:allow-read-dir",
+		"fs:allow-mkdir",
+		"fs:allow-exists",
+		"fs:allow-stat",
+		"fs:allow-lstat",
+		"fs:allow-remove",
+		"fs:allow-rename",
+		"fs:allow-create",
+		"fs:allow-open",
+		"fs:allow-read",
+		"fs:allow-write",
+
+		"fs:allow-app-read-recursive",
+		"fs:allow-app-write-recursive",
+		"fs:allow-applog-read-recursive",
+		"fs:allow-applog-write-recursive",
+		"fs:allow-appdata-read-recursive",
+		"fs:allow-appdata-write-recursive",
+		"fs:scope-appdata-recursive",
+		"fs:scope-applog-recursive",
+		"fs:scope-app-recursive",
+
 		"sql:default",
 		"sql:allow-execute",
 		"sql:allow-select",
-		"log:default"
+		"sql:allow-load",
+		"sql:allow-close",
+
+		"log:default",
+		"log:allow-log"
 	]
 }

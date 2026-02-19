@@ -34,8 +34,8 @@ export const insertProductSchema = createInsertSchema(schema.products, {
   name: (schema) => schema.min(1, "Product name required"),
   price: numericString,
   costPrice: numericString,
-  minStock: z.number().nonnegative(),
-  stock: z.number().int(), // Bisa negatif jika oversold, tapi idealnya dicegah
+  minimumStock: z.number().nonnegative().optional(),
+  maximumStock: z.number().nonnegative().optional(),
 }).omit({
   id: true,
   createdAt: true,
@@ -103,7 +103,6 @@ export const insertOrderItemSchema = createInsertSchema(schema.orderItems).omit(
     // Snapshot di-handle system
     productNameSnapshot: true,
     skuSnapshot: true,
-    priceAtTime: true,
     costPriceAtTime: true,
   },
 );

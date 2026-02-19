@@ -1,4 +1,11 @@
-import { Banknote, CreditCard, QrCode, Smartphone, Split } from "lucide-react";
+import {
+  Banknote,
+  CreditCard,
+  type LucideIcon,
+  QrCode,
+  Smartphone,
+  Split,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,7 +34,7 @@ interface PaymentModalProps {
 
 const PAYMENT_CONFIG: Record<
   (typeof PAYMENT_METHODS)[number],
-  { label: string; icon: any }
+  { label: string; icon: LucideIcon }
 > = {
   cash: { label: "Tunai", icon: Banknote },
   qris: { label: "QRIS", icon: QrCode },
@@ -117,7 +124,9 @@ export function PaymentModal({
           {/* 1. Pilih Metode Pembayaran */}
           <RadioGroup
             value={method}
-            onValueChange={(v) => setMethod(v as any)}
+            onValueChange={(v) =>
+              setMethod(v as (typeof PAYMENT_METHODS)[number])
+            }
             className="grid grid-cols-3 sm:grid-cols-5 gap-2"
           >
             {PAYMENT_METHODS.filter((m) => m !== "split").map((m) => {

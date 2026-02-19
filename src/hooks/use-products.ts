@@ -15,7 +15,7 @@ import { ProductService } from "@/services/product.service";
 export const productKeys = {
   all: ["products"] as const,
   lists: () => [...productKeys.all, "list"] as const,
-  list: (branchId: string, params: Record<string, any>) =>
+  list: (branchId: string, params: Record<string, unknown>) =>
     [...productKeys.lists(), branchId, params] as const,
   details: () => [...productKeys.all, "detail"] as const,
   detail: (branchId: string, productId: string) =>
@@ -39,7 +39,7 @@ interface UseProductsParams {
 
 export function useProducts({ branchId, ...params }: UseProductsParams) {
   return useQuery({
-    queryKey: productKeys.list(branchId, params),
+    queryKey: productKeys.list(branchId, params as Record<string, unknown>),
     queryFn: async () => {
       const res = await ProductService.getAll(branchId, params);
       if (!res.success) throw new Error(res.error || "Gagal memuat produk");
@@ -55,8 +55,9 @@ export function useProduct(branchId: string, productId: string) {
     queryKey: productKeys.detail(branchId, productId),
     queryFn: async () => {
       const res = await ProductService.getById(branchId, productId);
-      if (!res.success) throw new Error(res.error || "Produk tidak ditemukan");
-      return res.data!;
+      if (!res.success || !res.data)
+        throw new Error(res.error || "Produk tidak ditemukan");
+      return res.data;
     },
     enabled: !!productId && !!branchId, // Hanya jalan jika ID tersedia
   });
